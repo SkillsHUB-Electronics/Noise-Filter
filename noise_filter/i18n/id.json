@@ -10,5 +10,18 @@
   "analyzer.output": "Spektrum output",
   "noise.learn": "Pelajari noise ruangan saya",
   "noise.train": "Latih model AI",
-  "hint.virtualmic": "Pasang VB-Cable, lalu pilih \"CABLE Output\" sebagai mikrofon di TeamTalk / Meet."
+  "hint.virtualmic": "Pasang VB-Cable, lalu pilih \"CABLE Output\" sebagai mikrofon di TeamTalk / Meet.",
+  "device.exclusive": "Mode eksklusif (latensi terendah)",
+  "engine.start": "Mulai",
+  "engine.stop": "Berhenti",
+  "engine.error": "Gagal memulai audio",
+  "controls.title": "Filter",
+  "label.mode": "Peredam noise",
+  "label.strength": "Kekuatan",
+  "label.hp": "High-pass",
+  "label.gate": "Ambang gate",
+  "label.gain": "Gain output",
+  "label.gate_on": "Gate",
+  "noise.learning": "Mendengarkan... {s}dtk (diam)",
+  "noise.learned": "Profil noise ruangan sudah dipelajari."
 }

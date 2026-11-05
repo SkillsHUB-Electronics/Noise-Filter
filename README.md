@@ -11,7 +11,8 @@ Mic (any input device) -> [highpass -> denoise -> gate -> gain] -> virtual mic (
 ## Status
 Implemented: framed DSP core (10 ms frames @ 48 kHz), spectral denoiser (adaptive or learned noise profile),
 noise gate, high-pass, spectrum analyzer, ONNX denoiser wrapper, WASAPI device listing, realtime engine, CLI, EN/ID strings, tests.
-Next: Qt UI with analyzer plots, training pipeline (`training/`), packaging.
+Qt UI (PySide6 + pyqtgraph): device pickers, live input/output spectrum, level meters, filter controls, learn-room-noise, EN/ID, saved settings. `noise-filter ui` (add `--demo` for a synthetic signal).
+Next: training pipeline (`training/`), packaging.
 
 ## Low latency design
 - Fixed 480-sample frames (10 ms). Spectral denoiser adds 1 frame of algorithmic delay.
@@ -21,7 +22,8 @@ Next: Qt UI with analyzer plots, training pipeline (`training/`), packaging.
 
 ## Usage (Windows)
 ```
-pip install -e .[audio,ai]
+pip install -e .[audio,ai,ui]
+noise-filter ui          # graphical app
 noise-filter devices
 noise-filter run --in <id> --out <id of "CABLE Input"> [--exclusive]
 ```

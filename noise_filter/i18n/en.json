@@ -10,5 +10,18 @@
   "analyzer.output": "Output spectrum",
   "noise.learn": "Learn my room noise",
   "noise.train": "Train AI model",
-  "hint.virtualmic": "Install VB-Cable, then select \"CABLE Output\" as the microphone in TeamTalk / Meet."
+  "hint.virtualmic": "Install VB-Cable, then select \"CABLE Output\" as the microphone in TeamTalk / Meet.",
+  "device.exclusive": "Exclusive mode (lowest latency)",
+  "engine.start": "Start",
+  "engine.stop": "Stop",
+  "engine.error": "Could not start audio",
+  "controls.title": "Filter",
+  "label.mode": "Denoise",
+  "label.strength": "Strength",
+  "label.hp": "High-pass",
+  "label.gate": "Gate threshold",
+  "label.gain": "Output gain",
+  "label.gate_on": "Gate",
+  "noise.learning": "Listening... {s}s (stay quiet)",
+  "noise.learned": "Room noise profile learned."
 }
