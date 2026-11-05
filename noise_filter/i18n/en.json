@@ -1,0 +1,14 @@
+{
+  "app.title": "Noise Filter",
+  "device.input": "Input device (microphone)",
+  "device.output": "Output device (virtual mic)",
+  "device.refresh": "Refresh devices",
+  "mode.bypass": "Bypass",
+  "denoise.spectral": "Spectral (fast, classic)",
+  "denoise.onnx": "AI model (ONNX)",
+  "analyzer.input": "Input spectrum",
+  "analyzer.output": "Output spectrum",
+  "noise.learn": "Learn my room noise",
+  "noise.train": "Train AI model",
+  "hint.virtualmic": "Install VB-Cable, then select \"CABLE Output\" as the microphone in TeamTalk / Meet."
+}

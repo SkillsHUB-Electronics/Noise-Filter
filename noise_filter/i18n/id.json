@@ -1,0 +1,14 @@
+{
+  "app.title": "Noise Filter",
+  "device.input": "Perangkat input (mikrofon)",
+  "device.output": "Perangkat output (mic virtual)",
+  "device.refresh": "Segarkan perangkat",
+  "mode.bypass": "Lewati (bypass)",
+  "denoise.spectral": "Spektral (cepat, klasik)",
+  "denoise.onnx": "Model AI (ONNX)",
+  "analyzer.input": "Spektrum input",
+  "analyzer.output": "Spektrum output",
+  "noise.learn": "Pelajari noise ruangan saya",
+  "noise.train": "Latih model AI",
+  "hint.virtualmic": "Pasang VB-Cable, lalu pilih \"CABLE Output\" sebagai mikrofon di TeamTalk / Meet."
+}
