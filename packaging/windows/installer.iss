@@ -23,6 +23,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 WizardStyle=modern
 UninstallDisplayIcon={app}\NoiseFilter.exe
+SetupIconFile={#Root}\noise_filter\assets\icon.ico
 InfoBeforeFile={#Root}\packaging\windows\VB-CABLE-NOTICE.txt
 
 [Languages]

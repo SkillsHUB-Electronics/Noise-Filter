@@ -18,7 +18,7 @@ noise-filter = "noise_filter.cli:main"
 include = ["noise_filter*"]
 
 [tool.setuptools.package-data]
-noise_filter = ["i18n/*.json"]
+noise_filter = ["i18n/*.json", "assets/*.png", "assets/*.ico"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

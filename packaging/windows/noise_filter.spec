@@ -10,6 +10,7 @@ a = Analysis(
     pathex=[str(root)],
     binaries=[(str(native / "nf_core.dll"), "noise_filter/_native")],
     datas=[(str(root / "noise_filter" / "i18n" / "*.json"), "noise_filter/i18n"),
+           (str(root / "noise_filter" / "assets" / "*.png"), "noise_filter/assets"),
            (str(native / "nf-cli.exe"), "noise_filter/_native")],
     hiddenimports=["noise_filter.ui.app", "noise_filter.audio.engine", "noise_filter.audio.devices",
                    "sounddevice", "_sounddevice_data"],
@@ -19,5 +20,5 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="NoiseFilter", console=False,
-          icon=None, version=None)
+          icon=str(root / "noise_filter" / "assets" / "icon.ico"), version=None)
 coll = COLLECT(exe, a.binaries, a.datas, name="NoiseFilter")
