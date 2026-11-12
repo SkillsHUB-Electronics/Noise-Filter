@@ -14,7 +14,10 @@ noise gate, high-pass, spectrum analyzer, ONNX denoiser wrapper, WASAPI device l
 Qt UI (PySide6 + pyqtgraph): device pickers, live input/output spectrum, level meters, filter controls, learn-room-noise, EN/ID, saved settings. `noise-filter ui` (add `--demo` for a synthetic signal).
 C++ core (`cpp/`, nf-core): 1:1 port of `core/` with a native WASAPI engine and a C API. The app uses it
 automatically when the DLL is built (about 15x cheaper DSP, audio thread free of Python). See [cpp/README.md](cpp/README.md).
-Next: training pipeline (`training/`), packaging, then the Android app on the same C++ core.
+AI denoiser (`training/`, NFNet): small realtime model (0.4 ms per 10 ms frame in C++), trained in GitHub Actions
+on public 48 kHz data, shipped with the installer and updated automatically (verified download, live swap). See
+[training/README.md](training/README.md).
+Next: opt-in noise contributions (F3), then the Android app on the same C++ core.
 
 ## Low latency design
 - Fixed 480-sample frames (10 ms). Spectral denoiser adds 1 frame of algorithmic delay.

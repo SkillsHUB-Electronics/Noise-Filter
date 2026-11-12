@@ -14,14 +14,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build nf-core (MSVC)
+      - name: Download ONNX Runtime (Windows)
+        shell: pwsh
         run: |
-          cmake -S cpp -B cpp/build -A x64
+          Invoke-WebRequest https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip -OutFile ort.zip
+          Expand-Archive ort.zip -DestinationPath . -Force
+      - name: Build nf-core (MSVC, with ONNX Runtime)
+        run: |
+          cmake -S cpp -B cpp/build -A x64 -DNF_WITH_ONNX=ON -DONNXRUNTIME_DIR="$PWD/onnxruntime-win-x64-1.20.1"
           cmake --build cpp/build --config Release
+          Copy-Item onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll cpp/build/Release/
       - name: C++ tests
         run: ctest --test-dir cpp/build -C Release --output-on-failure
       - name: Install DLL next to the Python package
-        run: cmake --install cpp/build --config Release
+        run: |
+          cmake --install cpp/build --config Release
+          Copy-Item onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll noise_filter/_native/
       - name: Python tests (parity C++ vs Python)
         run: |
           pip install -e .[dev] onnx onnxruntime
@@ -35,6 +43,7 @@ jobs:
           name: nf-core-windows-x64
           path: |
             noise_filter/_native/nf_core.dll
+            noise_filter/_native/onnxruntime.dll
             noise_filter/_native/nf-cli.exe
 
   linux-onnx:
@@ -56,9 +65,10 @@ jobs:
           cmake --build cpp/build -j
       - name: C++ tests
         run: ctest --test-dir cpp/build --output-on-failure
-      - name: Python tests (parity incl. ONNX)
+      - name: Python tests (parity incl. ONNX and the NFNet model)
         run: |
-          pip install -e .[dev] onnx onnxruntime
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .[dev] onnx onnxruntime pystoi soundfile
           NF_CORE_LIB=$PWD/cpp/build/libnf_core.so python -m pytest -q
 
   installer:
@@ -72,11 +82,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build nf-core (MSVC)
+      - name: Download ONNX Runtime (Windows)
+        shell: pwsh
         run: |
-          cmake -S cpp -B cpp/build -A x64 -DNF_BUILD_TESTS=OFF
+          Invoke-WebRequest https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip -OutFile ort.zip
+          Expand-Archive ort.zip -DestinationPath . -Force
+      - name: Build nf-core (MSVC, with ONNX Runtime)
+        run: |
+          cmake -S cpp -B cpp/build -A x64 -DNF_BUILD_TESTS=OFF -DNF_WITH_ONNX=ON -DONNXRUNTIME_DIR="$PWD/onnxruntime-win-x64-1.20.1"
           cmake --build cpp/build --config Release
           cmake --install cpp/build --config Release
+          Copy-Item onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll noise_filter/_native/
       - name: Freeze the app (PyInstaller)
         run: |
           pip install pyinstaller -e .[audio,ui]

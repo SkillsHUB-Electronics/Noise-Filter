@@ -130,3 +130,17 @@ def test_onnx_parity(tmp_path):
     p = native.NativePipeline(PipelineConfig(**cfg))
     p.process(f0)
     np.testing.assert_allclose(p.process(f1), np.clip(0.5 * (f0 + f1), -1, 1), atol=1e-6)
+
+
+def test_nfnet_parity_native(tmp_path):
+    """The real AI model (GRU) runs identically in the C++ engine and the Python engine."""
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("torch")
+    if not native.has_onnx():
+        pytest.skip("nf-core built without ONNX Runtime")
+    from training.model import NFNet
+    from training.export import export_onnx
+    path = str(tmp_path / "nfnet.onnx")
+    export_onnx(NFNet(hidden=64), path)
+    cfg = dict(denoise="onnx", onnx_model=path, gate_enabled=False)
+    assert compare(Pipeline(PipelineConfig(**cfg)), native.NativePipeline(PipelineConfig(**cfg)), signal(1.0)) < 1e-4

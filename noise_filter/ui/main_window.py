@@ -1,8 +1,10 @@
+import os
 import time
 import numpy as np
 from PySide6 import QtCore, QtWidgets as W
 from ..core import FRAME_SIZE, FRAME_MS, SAMPLE_RATE
 from ..core import native
+from .. import model_update
 from ..i18n import tr
 from . import settings
 from .spectrum_plot import SpectrumPlot
@@ -19,13 +21,22 @@ def level_bar():
     return b
 
 
+class _ModelSignal(QtCore.QObject):
+    done = QtCore.Signal(object, object)   # (installed model entry | None, error | None), queued to the UI thread
+
+
 class MainWindow(W.QMainWindow):
     def __init__(self, demo: bool = False):
         super().__init__()
         self.data = settings.load()
         self.lang = self.data.get("lang", "en")
         # C++ nf-core when the library is built (lower latency, ~15x cheaper DSP), else pure Python.
-        self.pipe = native.create_pipeline(settings.pipeline_config(self.data))
+        cfg = settings.pipeline_config(self.data)
+        if cfg.denoise == "onnx" and not os.path.isfile(cfg.onnx_model):
+            cfg.onnx_model = model_update.current_model_path()   # bundled / latest downloaded model
+            if not cfg.onnx_model:
+                cfg.denoise = "spectral"
+        self.pipe = native.create_pipeline(cfg)
         self.native = getattr(self.pipe, "native", False)
         self.engine = None
         self.native_engine = False
@@ -35,6 +46,10 @@ class MainWindow(W.QMainWindow):
         self._build()
         self.retranslate()
         self.refresh_devices()
+        self._model_signal = _ModelSignal()
+        self._model_signal.done.connect(self._model_update_done)
+        if not demo and os.environ.get("NF_NO_UPDATE_CHECK") != "1":
+            QtCore.QTimer.singleShot(3000, self._check_model_update)
         self.timer = QtCore.QTimer(self, interval=33)       # ~30 fps UI refresh
         self.timer.timeout.connect(self._tick)
         self.timer.start()
@@ -109,7 +124,7 @@ class MainWindow(W.QMainWindow):
         root.addWidget(self.hint); root.addWidget(self.status)
 
         self.bypass.toggled.connect(lambda v: self._set(bypass=v))
-        self.mode_cb.currentIndexChanged.connect(lambda _: self._set(denoise=self.mode_cb.currentData()))
+        self.mode_cb.currentIndexChanged.connect(lambda _: self._mode_changed(self.mode_cb.currentData()))
         self.strength.valueChanged.connect(lambda v: self._set(strength=v / 100))
         self.hp.valueChanged.connect(lambda v: self._set(highpass_hz=float(v)))
         self.gate_on.toggled.connect(lambda v: self._set(gate_enabled=v))
@@ -134,8 +149,12 @@ class MainWindow(W.QMainWindow):
         self.bypass.setText(t("mode.bypass"))
         cur = self.pipe.cfg.denoise
         self.mode_cb.blockSignals(True); self.mode_cb.clear()
+        model = model_update.current_model()
         for key in ("off", "spectral", "onnx"):
-            self.mode_cb.addItem(t(f"denoise.{key}"), key)
+            label = t(f"denoise.{key}")
+            if key == "onnx":
+                label = f"{label}  ({model['name']} {model['version']})" if model else f"{label}  ({t('model.missing')})"
+            self.mode_cb.addItem(label, key)
         self.mode_cb.setCurrentIndex(["off", "spectral", "onnx"].index(cur))
         self.mode_cb.blockSignals(False)
         for k in self.lbls: self.lbls[k].setText(t(f"label.{k}"))
@@ -148,6 +167,36 @@ class MainWindow(W.QMainWindow):
         self.pipe.update(**kw)
         self._update_value_labels()
         self._save()
+
+    def _mode_changed(self, mode: str):
+        if mode == "onnx":
+            path = model_update.current_model_path()
+            if not path:
+                self.status.setText(tr("model.none", self.lang))
+                self.mode_cb.blockSignals(True)
+                self.mode_cb.setCurrentIndex(["off", "spectral", "onnx"].index(self.pipe.cfg.denoise))
+                self.mode_cb.blockSignals(False)
+                return
+            try:
+                self._set(denoise="onnx", onnx_model=path)
+            except Exception as e:      # e.g. engine built without ONNX Runtime
+                self.pipe.update(denoise="spectral")
+                self.mode_cb.blockSignals(True); self.mode_cb.setCurrentIndex(1); self.mode_cb.blockSignals(False)
+                self.status.setText(f"{tr('model.error', self.lang)}: {e}")
+            return
+        self._set(denoise=mode)
+
+    def _check_model_update(self):
+        """Silent background check; a newer verified model is swapped in live."""
+        model_update.update_in_background(lambda entry, err: self._model_signal.done.emit(entry, err))
+
+    def _model_update_done(self, entry, err):
+        if entry is None:
+            return                       # up to date or offline: keep quiet
+        self.retranslate()
+        if self.pipe.cfg.denoise == "onnx":
+            self._set(onnx_model=str(entry["path"]))
+        self.status.setText(tr("model.updated", self.lang).format(v=entry["version"]))
 
     def _update_value_labels(self):
         c = self.pipe.cfg

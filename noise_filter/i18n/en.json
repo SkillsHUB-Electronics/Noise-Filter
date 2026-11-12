@@ -5,7 +5,7 @@
   "device.refresh": "Refresh devices",
   "mode.bypass": "Bypass",
   "denoise.spectral": "Spectral (fast, classic)",
-  "denoise.onnx": "AI model (ONNX)",
+  "denoise.onnx": "AI model",
   "analyzer.input": "Input spectrum",
   "analyzer.output": "Output spectrum",
   "noise.learn": "Learn my room noise",
@@ -25,5 +25,10 @@
   "noise.learning": "Listening... {s}s (stay quiet)",
   "noise.learned": "Room noise profile learned.",
   "engine.backend": "Engine: {name}",
-  "engine.latency": "Latency"
+  "engine.latency": "Latency",
+  "model.none": "No AI model installed yet. Connect to the internet once, or reinstall.",
+  "model.updated": "AI model updated to version {v}.",
+  "model.missing": "not installed",
+  "denoise.off": "Off",
+  "model.error": "Could not load the AI model"
 }

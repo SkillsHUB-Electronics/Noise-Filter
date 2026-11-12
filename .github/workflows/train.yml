@@ -1,0 +1,73 @@
+name: Train AI model
+
+# Runs on a GitHub-hosted CPU runner (no GPU needed for this small model).
+# Start it from the Actions tab ("Run workflow"), or push a commit whose message contains [train].
+# When the new model beats the spectral DSP baseline, the workflow commits it to
+# noise_filter/models/ on the same branch. Merging that branch ships the model to every app.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Training time budget (minutes, max ~300)"
+        default: "150"
+      speakers:
+        description: "EARS speakers used as clean speech"
+        default: "10"
+      version:
+        description: "Model version (empty = date)"
+        default: ""
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[train]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    env:
+      MINUTES: ${{ github.event.inputs.minutes || '150' }}
+      SPEAKERS: ${{ github.event.inputs.speakers || '10' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .[ai] scipy soundfile pystoi pesq onnx
+      - name: Cache training data
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: train-data-v1-ears${{ env.SPEAKERS }}-demand10-esc50
+      - name: Download data (EARS + DEMAND + ESC-50)
+        run: |
+          if [ ! -d data/clean ]; then python -m training.download_data --out data --speakers "$SPEAKERS" --demand 10; fi
+          du -sh data/*
+      - name: Train
+        run: |
+          VER="${{ github.event.inputs.version }}"; VER="${VER:-$(date +%Y.%m.%d)}"
+          echo "VER=$VER" >> $GITHUB_ENV
+          python -m training.train --clean data/clean --noise data/noise --minutes "$MINUTES" \
+            --batch 16 --workers 3 --version "$VER" --out runs/latest
+          cat runs/latest/report.md >> $GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nfnet-${{ env.VER }}
+          path: runs/latest
+      - name: Quality gate and publish to noise_filter/models
+        run: |
+          if python -m training.publish runs/latest noise_filter/models; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add noise_filter/models
+            git commit -m "Add AI model nfnet $VER (trained by CI)"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "::warning::New model did not beat the current one; not published."
+          fi

@@ -58,6 +58,20 @@ def selftest(out_path=None) -> int:
     lines.append(f"process: {y.shape == (FRAME_SIZE,)}")
     lines.append(f"i18n: {tr('engine.start', 'id')}")
     ok = is_native and y.shape == (FRAME_SIZE,) and tr("engine.start", "id") != "engine.start"
+    from . import model_update
+    model = model_update.current_model()
+    if model:   # the bundled AI model must load and run in the realtime engine
+        try:
+            from .core import PipelineConfig
+            p = native.create_pipeline(PipelineConfig(denoise="onnx", onnx_model=str(model["path"])))
+            y = p.process((0.01 * np.random.default_rng(0).standard_normal(FRAME_SIZE)).astype(np.float32))
+            lines.append(f"ai model: {model['version']} native={getattr(p, 'native', False)} ok={bool(np.isfinite(y).all())}")
+            ok = ok and getattr(p, "native", False) and bool(np.isfinite(y).all())
+        except Exception as e:
+            lines.append(f"ai model: FAILED {e}")
+            ok = False
+    else:
+        lines.append("ai model: none bundled")
     lines.append("OK" if ok else "FAILED")
     text = "\n".join(lines) + "\n"
     if out_path:
