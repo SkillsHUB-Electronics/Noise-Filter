@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "latest": {
+    "name": "nfnet",
+    "version": "2026.11.12",
+    "file": "nfnet-2026.11.12.onnx",
+    "sha256": "3e7169180691fad0ba3fa8b3f8142f7baf407713c42d476072b0d1036dd2b706",
+    "size": 8347373,
+    "min_app_version": "0.3.0",
+    "published": "2026-11-12",
+    "metrics": {
+      "noisy": {
+        "si_sdr": 5.9966,
+        "stoi": 0.811,
+        "pesq": 1.3568,
+        "residual_db": 0.0,
+        "ms_per_frame": 0.0
+      },
+      "spectral": {
+        "si_sdr": 7.1495,
+        "stoi": 0.8041,
+        "pesq": 1.4921,
+        "residual_db": -4.1896,
+        "ms_per_frame": 0.7423
+      },
+      "nfnet": {
+        "si_sdr": 10.0055,
+        "stoi": 0.8363,
+        "pesq": 1.7612,
+        "residual_db": -29.9598,
+        "ms_per_frame": 0.9224
+      }
+    }
+  }
+}
