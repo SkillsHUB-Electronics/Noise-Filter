@@ -13,7 +13,6 @@
 #include <initguid.h>
 #include <audioclient.h>
 #include <avrt.h>
-#include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
 
 #include <algorithm>
@@ -33,6 +32,8 @@ namespace {
 constexpr int kRate = 48000;
 // Defined here so MSVC and MinGW link the same way (ksmedia.h GUIDs need ksguid.lib on some toolchains).
 const GUID kSubtypePcm = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+// PKEY_Device_FriendlyName (functiondiscoverykeys_devpkey.h needs extra headers on MSVC).
+const PROPERTYKEY kFriendlyName = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
 const GUID kSubtypeFloat = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 constexpr int kFrame = 480;
 
@@ -120,7 +121,7 @@ std::vector<DevEntry> enumerate(int kind) {
       if (SUCCEEDED(d->OpenPropertyStore(STGM_READ, &ps))) {
         PROPVARIANT v;
         PropVariantInit(&v);
-        if (SUCCEEDED(ps->GetValue(PKEY_Device_FriendlyName, &v)) && v.vt == VT_LPWSTR) e.name = narrow(v.pwszVal);
+        if (SUCCEEDED(ps->GetValue(kFriendlyName, &v)) && v.vt == VT_LPWSTR) e.name = narrow(v.pwszVal);
         PropVariantClear(&v);
         release(ps);
       }
