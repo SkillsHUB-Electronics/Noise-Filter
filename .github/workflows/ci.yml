@@ -58,3 +58,56 @@ jobs:
         run: |
           pip install -e .[dev] onnx onnxruntime
           NF_CORE_LIB=$PWD/cpp/build/libnf_core.so python -m pytest -q
+
+  installer:
+    # Offline Windows installer: frozen app (Python inside) + VB-CABLE, one setup.exe.
+    needs: windows
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build nf-core (MSVC)
+        run: |
+          cmake -S cpp -B cpp/build -A x64 -DNF_BUILD_TESTS=OFF
+          cmake --build cpp/build --config Release
+          cmake --install cpp/build --config Release
+      - name: Freeze the app (PyInstaller)
+        run: |
+          pip install pyinstaller -e .[audio,ui]
+          pyinstaller packaging/windows/noise_filter.spec --noconfirm
+      - name: Smoke test the frozen app
+        shell: bash
+        run: |
+          ls dist/NoiseFilter/_internal/noise_filter/_native
+          dist/NoiseFilter/NoiseFilter.exe selftest --out selftest.txt; code=$?
+          cat selftest.txt; exit $code
+      - name: Download VB-CABLE driver pack
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/vbcable | Out-Null
+          Invoke-WebRequest https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack46.zip -OutFile build/vbcable.zip
+          Expand-Archive build/vbcable.zip -DestinationPath build/vbcable -Force
+          Get-ChildItem build/vbcable
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          $ver = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          & $iscc "/DAppVersion=$ver" packaging/windows/installer.iss
+          Get-ChildItem dist/*.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NoiseFilter-Setup
+          path: dist/NoiseFilter-Setup-*.exe
+      - name: Publish pre-release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release create "$GITHUB_REF_NAME" dist/NoiseFilter-Setup-*.exe --prerelease --title "Noise Filter $GITHUB_REF_NAME" --notes "Offline Windows installer (app + VB-CABLE). VB-CABLE is a donationware by VB-Audio (www.vb-cable.com), all participations are welcome."

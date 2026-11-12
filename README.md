@@ -36,3 +36,13 @@ Then pick "CABLE Output" as the microphone in your app. VB-Cable must be install
 ```
 pip install -e .[dev] && pytest
 ```
+
+## Windows installer (offline)
+CI builds `NoiseFilter-Setup-<version>.exe`: the app frozen with PyInstaller (Python, Qt and nf-core inside, nothing to
+download) plus VB-CABLE, which it installs silently if it is not there yet. Pushing a `v*` tag publishes it as a GitHub
+pre-release. Build locally on Windows: `pyinstaller packaging/windows/noise_filter.spec`, extract the VB-CABLE driver pack to
+`build/vbcable/`, then `iscc packaging/windows/installer.iss`.
+
+VB-CABLE is made by VB-Audio (www.vb-cable.com) and is bundled under their distribution terms.
+VB-CABLE is a donationware, all participations are welcome. Deployments in companies, schools or public institutions,
+where end users cannot donate themselves, need VB-CABLE licenses bought by the distributor.
