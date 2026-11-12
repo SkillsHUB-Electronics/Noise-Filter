@@ -23,5 +23,7 @@
   "label.gain": "Gain output",
   "label.gate_on": "Gate",
   "noise.learning": "Mendengarkan... {s}dtk (diam)",
-  "noise.learned": "Profil noise ruangan sudah dipelajari."
+  "noise.learned": "Profil noise ruangan sudah dipelajari.",
+  "engine.backend": "Mesin: {name}",
+  "engine.latency": "Latensi"
 }

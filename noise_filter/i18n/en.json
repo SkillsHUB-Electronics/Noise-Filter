@@ -23,5 +23,7 @@
   "label.gain": "Output gain",
   "label.gate_on": "Gate",
   "noise.learning": "Listening... {s}s (stay quiet)",
-  "noise.learned": "Room noise profile learned."
+  "noise.learned": "Room noise profile learned.",
+  "engine.backend": "Engine: {name}",
+  "engine.latency": "Latency"
 }

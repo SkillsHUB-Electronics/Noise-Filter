@@ -1,7 +1,8 @@
 import time
 import numpy as np
 from PySide6 import QtCore, QtWidgets as W
-from ..core import Pipeline, FRAME_SIZE, FRAME_MS, SAMPLE_RATE
+from ..core import FRAME_SIZE, FRAME_MS, SAMPLE_RATE
+from ..core import native
 from ..i18n import tr
 from . import settings
 from .spectrum_plot import SpectrumPlot
@@ -23,8 +24,11 @@ class MainWindow(W.QMainWindow):
         super().__init__()
         self.data = settings.load()
         self.lang = self.data.get("lang", "en")
-        self.pipe = Pipeline(settings.pipeline_config(self.data))
+        # C++ nf-core when the library is built (lower latency, ~15x cheaper DSP), else pure Python.
+        self.pipe = native.create_pipeline(settings.pipeline_config(self.data))
+        self.native = getattr(self.pipe, "native", False)
         self.engine = None
+        self.native_engine = False
         self.demo = demo
         self._demo_t = 0
         self._rng = np.random.default_rng(1)
@@ -165,15 +169,25 @@ class MainWindow(W.QMainWindow):
 
     def refresh_devices(self):
         self.in_cb.clear(); self.out_cb.clear()
-        try:
-            from ..audio import devices
-            devices.refresh()
-            ins, outs = devices.list_devices("input"), devices.list_devices("output")
-        except Exception as e:                      # no sounddevice / no audio backend
-            self.status.setText(f"Audio unavailable: {e}")
-            return
-        for d in ins: self.in_cb.addItem(d.name + ("  *" if d.is_default else ""), d.index)
-        for d in outs: self.out_cb.addItem(d.name + ("  *" if d.is_default else ""), d.index)
+        ins = outs = None
+        if self.native:                              # WASAPI enumeration inside nf-core (Windows)
+            ins, outs = native.list_devices("input"), native.list_devices("output")
+            if ins or outs:
+                for d in ins: self.in_cb.addItem(d.name + ("  *" if d.is_default else ""), d.id)
+                for d in outs: self.out_cb.addItem(d.name + ("  *" if d.is_default else ""), d.id)
+        if not (ins or outs):
+            self.native_engine = False
+            try:
+                from ..audio import devices
+                devices.refresh()
+                ins, outs = devices.list_devices("input"), devices.list_devices("output")
+            except Exception as e:                  # no sounddevice / no audio backend
+                self.status.setText(f"Audio unavailable: {e}")
+                return
+            for d in ins: self.in_cb.addItem(d.name + ("  *" if d.is_default else ""), d.index)
+            for d in outs: self.out_cb.addItem(d.name + ("  *" if d.is_default else ""), d.index)
+        else:
+            self.native_engine = True
         # prefer saved choice; else prefer a VB-Cable input for output
         for cb, key in ((self.in_cb, "in_dev"), (self.out_cb, "out_dev")):
             i = cb.findData(self.data.get(key)); 
@@ -186,9 +200,13 @@ class MainWindow(W.QMainWindow):
         t = lambda k: tr(k, self.lang)
         if on:
             try:
-                from ..audio.engine import Engine
-                self.engine = Engine(self.pipe, self.in_cb.currentData(), self.out_cb.currentData(),
-                                     exclusive=self.excl.isChecked())
+                if self.native_engine:
+                    self.engine = native.NativeEngine(self.pipe, self.in_cb.currentData(),
+                                                      self.out_cb.currentData(), exclusive=self.excl.isChecked())
+                else:
+                    from ..audio.engine import Engine
+                    self.engine = Engine(self.pipe, self.in_cb.currentData(), self.out_cb.currentData(),
+                                         exclusive=self.excl.isChecked())
                 self.engine.start()
             except Exception as e:
                 self.start_btn.blockSignals(True); self.start_btn.setChecked(False); self.start_btn.blockSignals(False)
@@ -230,10 +248,16 @@ class MainWindow(W.QMainWindow):
         self.out_plot.set_data(o_db, ref=i_db)
         self.in_bar.setValue(int(max(-80, p.in_analyzer.level_db())))
         self.out_bar.setValue(int(max(-80, p.out_analyzer.level_db())))
-        if self.engine:
-            self.status.setText(f"xruns: {self.engine.xruns}   DSP: {FRAME_MS:.0f} ms frames @ {SAMPLE_RATE // 1000} kHz")
+        backend = tr("engine.backend", self.lang).format(name="C++" if self.native else "Python")
+        if self.engine and hasattr(self.engine, "stats"):
+            s = self.engine.stats()
+            self.status.setText(f"{backend}   xruns: {s['xruns']}   DSP: {s['dsp_avg_us'] / 1000:.2f} ms "
+                                f"(max {s['dsp_max_us'] / 1000:.2f}) / {FRAME_MS:.0f} ms   "
+                                f"{tr('engine.latency', self.lang)}: ~{s['latency_ms']:.0f} ms")
+        elif self.engine:
+            self.status.setText(f"{backend}   xruns: {self.engine.xruns}   DSP: {FRAME_MS:.0f} ms frames @ {SAMPLE_RATE // 1000} kHz")
         elif self.demo:
-            self.status.setText(f"DEMO signal   DSP cost: {getattr(self, '_cost', 0):.2f} ms / {FRAME_MS:.0f} ms frame")
+            self.status.setText(f"{backend}   DEMO signal   DSP cost: {getattr(self, '_cost', 0):.2f} ms / {FRAME_MS:.0f} ms frame")
 
     def closeEvent(self, e):
         if self.engine: self.engine.stop()
