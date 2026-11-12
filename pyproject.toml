@@ -1,6 +1,6 @@
 [project]
 name = "noise-filter"
-version = "0.1.0"
+version = "0.2.0"
 description = "Realtime low-latency microphone noise filter with frequency analyzer (Windows)"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26"]
@@ -18,7 +18,7 @@ noise-filter = "noise_filter.cli:main"
 include = ["noise_filter*"]
 
 [tool.setuptools.package-data]
-noise_filter = ["i18n/*.json"]
+noise_filter = ["i18n/*.json", "assets/*.png", "assets/*.ico"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

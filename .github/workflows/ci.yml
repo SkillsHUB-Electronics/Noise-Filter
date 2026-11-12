@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build nf-core (MSVC)
+        run: |
+          cmake -S cpp -B cpp/build -A x64
+          cmake --build cpp/build --config Release
+      - name: C++ tests
+        run: ctest --test-dir cpp/build -C Release --output-on-failure
+      - name: Install DLL next to the Python package
+        run: cmake --install cpp/build --config Release
+      - name: Python tests (parity C++ vs Python)
+        run: |
+          pip install -e .[dev] onnx onnxruntime
+          python -m pytest -q
+      - name: CLI smoke test
+        run: |
+          noise_filter/_native/nf-cli.exe bench
+          noise_filter/_native/nf-cli.exe devices
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nf-core-windows-x64
+          path: |
+            noise_filter/_native/nf_core.dll
+            noise_filter/_native/nf-cli.exe
+
+  linux-onnx:
+    runs-on: ubuntu-latest
+    env:
+      ORT_VERSION: "1.20.1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download ONNX Runtime
+        run: |
+          curl -sSL -o ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz
+          tar xzf ort.tgz
+      - name: Build nf-core with ONNX
+        run: |
+          cmake -S cpp -B cpp/build -DNF_WITH_ONNX=ON -DONNXRUNTIME_DIR=$PWD/onnxruntime-linux-x64-${ORT_VERSION}
+          cmake --build cpp/build -j
+      - name: C++ tests
+        run: ctest --test-dir cpp/build --output-on-failure
+      - name: Python tests (parity incl. ONNX)
+        run: |
+          pip install -e .[dev] onnx onnxruntime
+          NF_CORE_LIB=$PWD/cpp/build/libnf_core.so python -m pytest -q
+
+  installer:
+    # Offline Windows installer: frozen app (Python inside) + VB-CABLE, one setup.exe.
+    needs: windows
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build nf-core (MSVC)
+        run: |
+          cmake -S cpp -B cpp/build -A x64 -DNF_BUILD_TESTS=OFF
+          cmake --build cpp/build --config Release
+          cmake --install cpp/build --config Release
+      - name: Freeze the app (PyInstaller)
+        run: |
+          pip install pyinstaller -e .[audio,ui]
+          pyinstaller packaging/windows/noise_filter.spec --noconfirm
+      - name: Smoke test the frozen app
+        shell: bash
+        run: |
+          ls dist/NoiseFilter/_internal/noise_filter/_native
+          dist/NoiseFilter/NoiseFilter.exe selftest --out selftest.txt; code=$?
+          cat selftest.txt; exit $code
+      - name: Download VB-CABLE driver pack
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/vbcable | Out-Null
+          Invoke-WebRequest https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack46.zip -OutFile build/vbcable.zip
+          Expand-Archive build/vbcable.zip -DestinationPath build/vbcable -Force
+          Get-ChildItem build/vbcable
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          $ver = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          & $iscc "/DAppVersion=$ver" packaging/windows/installer.iss
+          Get-ChildItem dist/*.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NoiseFilter-Setup
+          path: dist/NoiseFilter-Setup-*.exe
+      - name: Attach installer to the GitHub release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/NoiseFilter-Setup-*.exe --clobber

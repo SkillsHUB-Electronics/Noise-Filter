@@ -5,3 +5,5 @@ build/
 dist/
 *.onnx
 *.wav
+cpp/build*/
+noise_filter/_native/
