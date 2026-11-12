@@ -64,7 +64,7 @@ jobs:
           if python -m training.publish runs/latest noise_filter/models; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add noise_filter/models
+            git add -f noise_filter/models
             git commit -m "Add AI model nfnet $VER (trained by CI)"
             git pull --rebase origin "${GITHUB_REF_NAME}"
             git push origin "HEAD:${GITHUB_REF_NAME}"

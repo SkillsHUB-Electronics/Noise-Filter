@@ -152,13 +152,37 @@ def rms_db(x):
     return 20 * np.log10(np.sqrt(np.mean(x ** 2)) + 1e-9)
 
 
+def active_fraction(x, floor_db: float = -60.0) -> float:
+    """Share of 10 ms frames louder than floor_db (dBFS). Digital silence / padding counts as inactive."""
+    n = len(x) // 480 * 480
+    if n == 0:
+        return 0.0
+    fr = x[:n].reshape(-1, 480).astype(np.float64)
+    return float(np.mean(10 * np.log10(np.mean(fr ** 2, 1) + 1e-12) > floor_db))
+
+
+def active_segment(src, n: int, rng: random.Random, min_active: float, tries: int = 20) -> np.ndarray:
+    """A segment with at least min_active of its frames above -60 dBFS. Some datasets pad clips with
+    silence (ESC-50) or start/end with long pauses (EARS); without this many 'noisy' mixtures would
+    secretly be clean, which skews both training and the evaluation."""
+    best, best_a = None, -1.0
+    for _ in range(tries):
+        x = src.segment(n, rng)
+        a = active_fraction(x)
+        if a >= min_active:
+            return x
+        if a > best_a:
+            best, best_a = x, a
+    return best
+
+
 def make_mix(clean_src, noise_src, cfg: MixConfig, rng: random.Random):
     """Returns (noisy, clean) float32 arrays, length a multiple of 480 samples."""
     n = int(cfg.seconds * SR) // 480 * 480
-    s = clean_src.segment(n, rng)
-    v = noise_src.segment(n, rng)
+    s = active_segment(clean_src, n, rng, 0.4)
+    v = active_segment(noise_src, n, rng, 0.6)
     if rng.random() < 0.5:          # second noise layer for variety
-        v = v + noise_src.segment(n, rng) * rng.uniform(0.2, 1.0)
+        v = v + active_segment(noise_src, n, rng, 0.6) * rng.uniform(0.2, 1.0)
     s = s / (np.sqrt(np.mean(s ** 2)) + 1e-9) * 10 ** (rng.uniform(*cfg.speech_dbfs) / 20)
     u = rng.random()
     if u < cfg.p_clean_only:

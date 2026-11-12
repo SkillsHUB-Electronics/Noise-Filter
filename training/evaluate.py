@@ -29,7 +29,8 @@ def run_pipeline(cfg: PipelineConfig, x: np.ndarray):
     t0 = time.perf_counter()
     y = np.concatenate([p.process(x[i * FRAME_SIZE:(i + 1) * FRAME_SIZE]) for i in range(n)])
     ms = (time.perf_counter() - t0) / n * 1000
-    y = np.concatenate([y[FRAME_SIZE:], np.zeros(FRAME_SIZE, np.float32)])  # undo 1-frame delay
+    if cfg.denoise != "off":   # STFT denoisers add one frame of delay; the high-pass alone adds none
+        y = np.concatenate([y[FRAME_SIZE:], np.zeros(FRAME_SIZE, np.float32)])
     return y, ms
 
 
@@ -46,9 +47,18 @@ def scores(est, clean, noisy):
 
 
 def evaluate(onnx_path: str, vset) -> dict:
+    """Scores per method, averaged over vset = [(noisy, clean), ...].
+
+    - The reference is the clean speech through the same 80 Hz high-pass the app applies, and the
+      "noisy" row is the input through that high-pass only. So SI-SDR measures denoising, not the
+      high-pass phase shift.
+    - residual_db = how loud the noise alone is after processing, relative to before (the noise is
+      x - clean, run through the method by itself). Lower is better; 0 dB = untouched.
+    - SI-SDR is clipped to [-30, 50] dB so one near-silent mixture cannot dominate the mean.
+    """
     base = dict(gate_enabled=False, highpass_hz=80.0)
     methods = {
-        "noisy": None,
+        "noisy": PipelineConfig(denoise="off", **base),
         "spectral": PipelineConfig(denoise="spectral", **base),
         "nfnet": PipelineConfig(denoise="onnx", onnx_model=onnx_path, **base),
     }
@@ -56,22 +66,21 @@ def evaluate(onnx_path: str, vset) -> dict:
     for x, s in vset:
         n = len(x) // FRAME_SIZE * FRAME_SIZE
         x, s = x[:n], s[:n]
+        v = x - s
+        ref, _ = run_pipeline(methods["noisy"], s)
+        vin, _ = run_pipeline(methods["noisy"], v)
+        sl = slice(SR, n - FRAME_SIZE)   # skip the first second (lets the DSP noise tracker adapt)
         for k, cfg in methods.items():
-            if cfg is None:
-                y, ms = x, 0.0
-            else:
-                y, ms = run_pipeline(cfg, x)
-            # compare on the part after the first second (lets the DSP noise tracker adapt)
-            sl = slice(SR, n - FRAME_SIZE)
-            r = scores(y[sl], s[sl], x[sl])
+            y, ms = run_pipeline(cfg, x)
+            r = scores(y[sl], ref[sl], x[sl])
+            r["si_sdr"] = float(np.clip(r["si_sdr"], -30.0, 50.0))
             for m in ("si_sdr", "stoi", "pesq"):
                 if r[m] is not None:
                     acc[k][m].append(r[m])
-            quiet = np.abs(s[sl]) < 1e-4 * max(np.max(np.abs(s)), 1e-6)  # speech pauses
-            noise_in = x[sl][quiet] if quiet.any() else x[sl]
-            noise_out = y[sl][quiet] if quiet.any() else y[sl]
-            acc[k]["residual_db"].append(20 * np.log10((np.std(noise_out) + 1e-9) / (np.std(noise_in) + 1e-9)))
-            acc[k]["ms"].append(ms)
+            vout, _ = run_pipeline(cfg, v)
+            acc[k]["residual_db"].append(
+                20 * np.log10((np.std(vout[sl]) + 1e-7) / (np.std(vin[sl]) + 1e-7)))
+            acc[k]["ms"].append(ms if k != "noisy" else 0.0)
     out = {}
     for k, d in acc.items():
         out[k] = {m: (float(np.mean(v)) if v else None) for m, v in d.items() if m != "ms"}
