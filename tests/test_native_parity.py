@@ -144,3 +144,17 @@ def test_nfnet_parity_native(tmp_path):
     export_onnx(NFNet(hidden=64), path)
     cfg = dict(denoise="onnx", onnx_model=path, gate_enabled=False)
     assert compare(Pipeline(PipelineConfig(**cfg)), native.NativePipeline(PipelineConfig(**cfg)), signal(1.0)) < 1e-4
+
+
+def test_capture_matches_python():
+    x = signal(0.5)
+    py, nat = Pipeline(), native.NativePipeline()
+    for p in (py, nat):
+        p.capture_start(9000)
+    for f in frames(x):
+        py.process(f); nat.process(f)
+    (a, da), (b, db) = py.capture_stop(), nat.capture_stop()
+    assert len(a) == len(b) == 9000 and da == db == 0
+    np.testing.assert_array_equal(a, x[:9000])
+    np.testing.assert_array_equal(b, x[:9000])
+    assert len(nat.capture_stop()[0]) == 0

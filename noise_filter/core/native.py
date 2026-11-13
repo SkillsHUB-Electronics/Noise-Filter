@@ -107,6 +107,8 @@ def _declare(lib):
         "nf_pipeline_process": ([P, F, F], I),
         "nf_pipeline_learn_start": ([P], V), "nf_pipeline_learn_finish": ([P], V),
         "nf_pipeline_clear_profile": ([P], V),
+        "nf_pipeline_capture_start": ([P, I], V),
+        "nf_pipeline_capture_stop": ([P, F, I, C.POINTER(I)], I),
         "nf_pipeline_get_profile": ([P, F], I), "nf_pipeline_set_profile": ([P, F], V),
         "nf_pipeline_spectrum_db": ([P, I, F], V), "nf_pipeline_level_db": ([P, I], C.c_float),
         "nf_device_count": ([I], I), "nf_device_get": ([I, I, C.POINTER(_DeviceInfo)], I),
@@ -227,6 +229,16 @@ class NativePipeline:
         self._lib.nf_pipeline_set_config(self._h, C.byref(_to_c(self.cfg)))
         if "onnx_model" in changes and self.cfg.onnx_model:
             self._load_onnx(self.cfg.onnx_model)
+
+    def capture_start(self, max_samples: int) -> None:
+        self._cap_max = max(int(max_samples), 0)
+        self._lib.nf_pipeline_capture_start(self._h, self._cap_max)
+
+    def capture_stop(self) -> tuple[np.ndarray, int]:
+        out = np.zeros(getattr(self, "_cap_max", 0), np.float32)
+        dropped = C.c_int(0)
+        n = self._lib.nf_pipeline_capture_stop(self._h, _fptr(out), len(out), C.byref(dropped))
+        return out[:n].copy(), int(dropped.value)
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         assert frame.shape == (FRAME_SIZE,), f"expected {FRAME_SIZE} samples"

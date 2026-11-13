@@ -4,10 +4,11 @@ import numpy as np
 from PySide6 import QtCore, QtWidgets as W
 from ..core import FRAME_SIZE, FRAME_MS, SAMPLE_RATE
 from ..core import native
-from .. import model_update
+from .. import contribute, model_update
 from ..i18n import tr
 from . import settings
 from .spectrum_plot import SpectrumPlot
+from .contribute_dialog import ContributeDialog, UploadWorker
 
 LANGS = [("en", "English"), ("id", "Bahasa Indonesia")]
 LEARN_SECONDS = 3
@@ -23,6 +24,10 @@ def level_bar():
 
 class _ModelSignal(QtCore.QObject):
     done = QtCore.Signal(object, object)   # (installed model entry | None, error | None), queued to the UI thread
+
+
+class _SampleSignal(QtCore.QObject):
+    ready = QtCore.Signal(object)          # screened 'Learn noise' recording (np.ndarray) or None
 
 
 class MainWindow(W.QMainWindow):
@@ -116,6 +121,17 @@ class MainWindow(W.QMainWindow):
         self.learn_btn, self.train_btn = W.QPushButton(), W.QPushButton()
         self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
         g.addWidget(self.learn_btn, 0, 3); g.addWidget(self.train_btn, 1, 3)
+        # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
+        self.contrib_cb, self.contrib_del = W.QCheckBox(), W.QPushButton()
+        self.contrib_cb.setChecked(contribute.load_state().get("ask", True))
+        self.contrib_cb.toggled.connect(lambda v: contribute.save_state(ask=v))
+        self.contrib_del.clicked.connect(self._delete_samples)
+        g.addWidget(self.contrib_cb, 2, 3); g.addWidget(self.contrib_del, 3, 3)
+        self._sample_signal = _SampleSignal()
+        self._sample_signal.ready.connect(self._offer_sample)
+        self._uploader = UploadWorker()
+        self._uploader.done.connect(self._upload_done)
+        self._capturing = False
         g.setColumnStretch(1, 1)
         root.addWidget(box)
 
@@ -160,6 +176,10 @@ class MainWindow(W.QMainWindow):
         for k in self.lbls: self.lbls[k].setText(t(f"label.{k}"))
         self.gate_on.setText(t("label.gate_on"))
         self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("model.check"))
+        self.contrib_cb.setText(t("contrib.offer")); self.contrib_del.setText(t("contrib.delete"))
+        on = contribute.enabled()
+        self.contrib_cb.setVisible(on)
+        self.contrib_del.setVisible(on and int(contribute.load_state().get("sent", 0)) > 0)
         self.hint.setText(t("hint.virtualmic"))
 
     # ---------- behaviour ----------
@@ -284,6 +304,10 @@ class MainWindow(W.QMainWindow):
     def learn_noise(self):
         sp = self.pipe.spectral
         sp.start_learning()
+        self._capturing = bool(contribute.enabled() and self.contrib_cb.isChecked() and self.engine
+                               and hasattr(self.pipe, "capture_start"))
+        if self._capturing:
+            self.pipe.capture_start(LEARN_SECONDS * SAMPLE_RATE)
         self.learn_btn.setEnabled(False)
         self.learn_btn.setText(tr("noise.learning", self.lang).format(s=LEARN_SECONDS))
         QtCore.QTimer.singleShot(LEARN_SECONDS * 1000, self._finish_learn)
@@ -292,6 +316,32 @@ class MainWindow(W.QMainWindow):
         self.pipe.spectral.finish_learning()
         self.learn_btn.setEnabled(True); self.retranslate()
         self.status.setText(tr("noise.learned", self.lang))
+        if self._capturing:
+            self._capturing = False
+            raw, dropped = self.pipe.capture_stop()
+            import threading   # screening runs the AI model once: keep it off the UI thread
+            threading.Thread(target=lambda: self._sample_signal.ready.emit(contribute.prepare(raw, dropped)),
+                             daemon=True, name="screen-sample").start()
+
+    def _offer_sample(self, sample):
+        if sample is None:
+            return                       # voice detected, too quiet, gaps...: never offered
+        dlg = ContributeDialog(sample, self.lang, self)
+        if dlg.exec() == W.QDialog.Accepted and dlg.category:
+            self.status.setText(tr("contrib.sending", self.lang))
+            self._uploader.run(contribute.upload, sample, dlg.category)
+        elif dlg.never:
+            self.contrib_cb.setChecked(False)
+
+    def _delete_samples(self):
+        if W.QMessageBox.question(self, tr("contrib.title", self.lang),
+                                  tr("contrib.delete_confirm", self.lang)) == W.QMessageBox.Yes:
+            self._uploader.run(contribute.delete_my_samples)
+
+    def _upload_done(self, ok, msg):
+        self.retranslate()
+        self.status.setText(tr("contrib.thanks" if ok else "contrib.failed", self.lang)
+                            + ("" if ok else f": {msg}"))
 
     def _demo_frame(self):
         """No audio device (e.g. headless): feed a synthetic 'voice + noise' signal."""

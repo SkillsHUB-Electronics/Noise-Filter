@@ -76,3 +76,36 @@ def test_model_update_button_reports_result(tmp_path, monkeypatch):
     w.train_btn.click()
     assert "offline" in w.status.text()
     w.close()
+
+
+def test_contribution_offer_flow(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    import numpy as np
+    from noise_filter import contribute
+    from noise_filter.ui import main_window as mw
+    monkeypatch.setattr(contribute, "enabled", lambda: True)
+    w = mw.MainWindow(demo=True)
+    assert not w.contrib_cb.isHidden() and w.contrib_cb.isChecked()
+    sent = []
+    monkeypatch.setattr(w._uploader, "run", lambda fn, *a: sent.append((fn, a)))
+
+    def fake_exec(dlg):
+        assert not dlg.send_btn.isEnabled()          # consent is required first
+        dlg.consent.setChecked(True); dlg.cat.setCurrentIndex(1); dlg._send()
+        return W.QDialog.Accepted
+    monkeypatch.setattr(mw.ContributeDialog, "exec", fake_exec)
+    w._offer_sample(None)                             # screening failed: nothing offered, nothing sent
+    assert not sent
+    x = np.zeros(48000 * 3, np.float32)
+    w._offer_sample(x)
+    assert sent and sent[0][0] is contribute.upload and sent[0][1][1] == "traffic"
+    assert contribute.load_state()["consent"] == "cc0-v1"
+
+    def never_exec(dlg):
+        dlg._never(); return W.QDialog.Rejected
+    monkeypatch.setattr(mw.ContributeDialog, "exec", never_exec)
+    w._offer_sample(x)
+    assert not w.contrib_cb.isChecked() and contribute.load_state()["ask"] is False
+    w.close()

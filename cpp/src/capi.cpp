@@ -1,5 +1,6 @@
 // C API wrapper around nf::Pipeline with lock-free-for-the-audio-thread control.
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -71,6 +72,13 @@ struct nf_pipeline {
   OnnxDenoiser* retired_onnx = nullptr;  // freed on the UI thread
   std::vector<float> profile_copy;
   bool has_profile = false;
+
+  // ---- raw input capture, guarded by cap (audio thread only try_locks) ----
+  std::mutex cap;
+  std::vector<float> cap_buf;
+  size_t cap_pos = 0;
+  std::atomic<bool> capturing{false};
+  std::atomic<int> cap_dropped{0};
 
   // ---- analyzers, guarded by ana ----
   std::mutex ana;
@@ -199,6 +207,19 @@ int nf_pipeline_process(nf_pipeline* p, const float* in, float* out) {
   float in_copy[kFrameSize];
   std::memcpy(in_copy, in, sizeof(in_copy));
   p->pipe.process(in_copy, out);
+  if (p->capturing.load(std::memory_order_relaxed)) {  // cheap pre-check; re-checked under the lock
+    if (p->cap.try_lock()) {
+      if (p->capturing) {
+        size_t n = std::min<size_t>(kFrameSize, p->cap_buf.size() - p->cap_pos);
+        std::memcpy(p->cap_buf.data() + p->cap_pos, in_copy, n * sizeof(float));
+        p->cap_pos += n;
+        if (p->cap_pos >= p->cap_buf.size()) p->capturing = false;
+      }
+      p->cap.unlock();
+    } else {
+      p->cap_dropped.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
   if (p->ana.try_lock()) {
     p->in_ana.push(in_copy, kFrameSize);
     p->out_ana.push(out, kFrameSize);
@@ -216,6 +237,33 @@ void nf_pipeline_learn_start(nf_pipeline* p) {
 void nf_pipeline_learn_finish(nf_pipeline* p) {
   std::lock_guard<std::mutex> g(p->ctl);
   p->learn_finish = true;
+}
+
+void nf_pipeline_capture_start(nf_pipeline* p, int max_samples) {
+  std::vector<float> buf(static_cast<size_t>(std::max(max_samples, 0)));  // allocate outside the lock
+  std::lock_guard<std::mutex> g(p->cap);
+  p->cap_buf.swap(buf);
+  p->cap_pos = 0;
+  p->cap_dropped = 0;
+  p->capturing = !p->cap_buf.empty();
+}
+
+int nf_pipeline_capture_stop(nf_pipeline* p, float* out, int max, int* dropped) {
+  std::vector<float> buf;
+  size_t n;
+  int d;
+  {
+    std::lock_guard<std::mutex> g(p->cap);
+    p->capturing = false;
+    buf.swap(p->cap_buf);
+    n = p->cap_pos;
+    d = p->cap_dropped;
+    p->cap_pos = 0;
+  }
+  n = std::min<size_t>(n, static_cast<size_t>(std::max(max, 0)));
+  if (out && n) std::memcpy(out, buf.data(), n * sizeof(float));
+  if (dropped) *dropped = d;
+  return static_cast<int>(n);
 }
 
 void nf_pipeline_clear_profile(nf_pipeline* p) {

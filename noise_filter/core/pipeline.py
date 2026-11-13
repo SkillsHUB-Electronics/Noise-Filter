@@ -28,7 +28,19 @@ class Pipeline:
         self.cfg = cfg or PipelineConfig()
         self.in_analyzer = SpectrumAnalyzer()
         self.out_analyzer = SpectrumAnalyzer()
+        self._cap, self._cap_n = None, 0
         self.apply(self.cfg)
+
+    def capture_start(self, max_samples: int) -> None:
+        """Record the next max_samples raw input samples (for noise sample contributions)."""
+        self._cap_n = 0
+        self._cap = np.zeros(max(int(max_samples), 0), np.float32)
+
+    def capture_stop(self) -> tuple[np.ndarray, int]:
+        """End the recording. Returns (samples, dropped_frames); dropped is always 0 here."""
+        cap, n = self._cap, self._cap_n
+        self._cap, self._cap_n = None, 0
+        return (cap[:n].copy() if cap is not None else np.zeros(0, np.float32)), 0
 
     def apply(self, cfg: PipelineConfig) -> None:
         self.cfg = cfg
@@ -59,6 +71,10 @@ class Pipeline:
         assert frame.shape == (FRAME_SIZE,), f"expected {FRAME_SIZE} samples"
         frame = frame.astype(np.float32, copy=False)
         self.in_analyzer.push(frame)
+        if self._cap is not None and self._cap_n < len(self._cap):
+            k = min(FRAME_SIZE, len(self._cap) - self._cap_n)
+            self._cap[self._cap_n:self._cap_n + k] = frame[:k]
+            self._cap_n += k
         if self.cfg.bypass:
             out = frame
         else:
