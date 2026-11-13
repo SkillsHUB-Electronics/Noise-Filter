@@ -269,20 +269,19 @@ def test_eq_tab_edits_reach_pipeline_and_persist(tmp_path, monkeypatch):
     assert len(w.pipe.cfg.eq_bands) == 8 and not p.add_btn.isEnabled()
     p.remove_band(7)
     assert len(w.pipe.cfg.eq_bands) == 7 and p.add_btn.isEnabled()
-    i = p.preset_cb.findData("builtin:hum_50")
-    p.preset_cb.setCurrentIndex(i); p._preset_chosen(i)
+    p.preset_actions["builtin:hum_50"].trigger()           # tick a preset in the menu
     assert [x["freq"] for x in w.pipe.cfg.eq_bands] == [50, 100, 150]
     p.save_preset("Mine")
     w.lang_cb.setCurrentIndex(1)                           # retranslate keeps everything
-    assert p.preset_cb.findData("user:Mine") > 0 and p.table.rowCount() == 3
+    assert "user:Mine" in p.preset_actions and p.table.rowCount() == 3 and p.selection == ["user:Mine"]
     w.close()
 
     w2 = MainWindow(demo=True)
     assert w2.pipe.cfg.eq_enabled and len(w2.pipe.cfg.eq_bands) == 3
-    assert w2.eq_panel.table.rowCount() == 3 and w2.eq_panel.preset_cb.findData("user:Mine") > 0
-    i = w2.eq_panel.preset_cb.findData("user:Mine")
-    w2.eq_panel.preset_cb.setCurrentIndex(i); w2.eq_panel._delete_preset()
-    assert w2.eq_panel.preset_cb.findData("user:Mine") < 0 and w2.data["eq_presets"] == {}
+    assert w2.eq_panel.table.rowCount() == 3 and w2.eq_panel.selection == ["user:Mine"]   # ticks remembered
+    assert w2.eq_panel.del_btn.isEnabled()
+    w2.eq_panel._delete_preset()
+    assert "user:Mine" not in w2.eq_panel.preset_actions and w2.data["eq_presets"] == {}
     w2.tabs.setCurrentIndex(1); w2._demo_frame(); w2._tick()   # spectrum feeds the EQ graph
     w2.close()
 
@@ -316,3 +315,26 @@ def test_dynamics_tab(tmp_path, monkeypatch):
     w2 = MainWindow(demo=True)
     assert w2.pipe.cfg.comp_ratio == 8.0 and w2.dyn_panel.sliders["comp_ratio"].value() == 80 and w2.tabs.currentIndex() == 3
     w2.close()
+
+
+def test_eq_combine_presets_in_menu(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    monkeypatch.setattr(W.QApplication, "quit", staticmethod(lambda: None))
+    from noise_filter.ui.main_window import MainWindow
+    w = MainWindow(demo=True)
+    p = w.eq_panel
+    p.preset_actions["builtin:hum_50"].trigger()
+    p.preset_actions["builtin:voice_clarity"].trigger()
+    assert p.selection == ["builtin:hum_50", "builtin:voice_clarity"]
+    assert len(w.pipe.cfg.eq_bands) == 7 and w.pipe.cfg.eq_enabled
+    assert "+" in p.preset_btn.toolTip()
+    p._update_menu()                                   # podcast (5 bands) no longer fits: greyed out
+    assert not p.preset_actions["builtin:podcast"].isEnabled()
+    assert not p.select_presets(p.selection + ["builtin:podcast"]) and len(p.selection) == 2
+    p.preset_actions["builtin:hum_50"].trigger()       # untick one
+    assert p.selection == ["builtin:voice_clarity"] and len(w.pipe.cfg.eq_bands) == 4
+    p.clear_presets()
+    assert p.selection == [] and w.pipe.cfg.eq_bands == [] and not w.pipe.cfg.eq_enabled
+    w.close()

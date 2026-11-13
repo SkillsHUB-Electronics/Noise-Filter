@@ -58,30 +58,50 @@ class EqPlot(pg.PlotWidget):
         ev.accept()
 
 
+class StayOpenMenu(W.QMenu):
+    """Checkable menu that stays open, so several presets can be ticked in a row."""
+
+    def mouseReleaseEvent(self, ev):
+        a = self.activeAction()
+        if a is not None and a.isEnabled() and a.isCheckable():
+            a.trigger()
+            ev.accept()
+            return
+        super().mouseReleaseEvent(ev)
+
+
 class EqPanel(W.QWidget):
     changed = QtCore.Signal(bool, list)        # enabled, bands
     presets_changed = QtCore.Signal(dict)      # the user's own presets
+    selection_changed = QtCore.Signal(list)    # ticked preset keys ("builtin:x" / "user:y")
 
     def __init__(self, freqs: np.ndarray, enabled: bool, bands: list[dict], user_presets: dict, lang: str,
-                 parent=None):
+                 parent=None, selection: list | None = None):
         super().__init__(parent)
         self.lang = lang
         self.bands = [eq.normalize(b) for b in bands][:eq.MAX_BANDS]
         self.user_presets = {k: [eq.normalize(b) for b in v] for k, v in (user_presets or {}).items()}
         self.handles: list[BandHandle] = []
         self._selected = -1
+        self.selection: list[str] = [k for k in (selection or []) if self._preset_bands(k) is not None]
 
         lay = W.QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         top = W.QHBoxLayout()
         self.enable_cb = W.QCheckBox(); self.enable_cb.setChecked(enabled)
         self.preset_lbl = W.QLabel()
-        self.preset_cb = W.QComboBox()
-        self.preset_cb.setSizeAdjustPolicy(W.QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.preset_cb.setMinimumContentsLength(14)
+        # several presets can be ticked; they are merged into one curve (core.eq.combine)
+        self.preset_btn = W.QToolButton()
+        self.preset_btn.setPopupMode(W.QToolButton.InstantPopup)
+        self.preset_btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
+        self.preset_btn.setSizePolicy(W.QSizePolicy.Expanding, W.QSizePolicy.Fixed)
+        self.preset_btn.setMinimumWidth(160)
+        self.preset_menu = StayOpenMenu(self)
+        self.preset_menu.aboutToShow.connect(self._update_menu)
+        self.preset_btn.setMenu(self.preset_menu)
         self.save_btn, self.del_btn, self.add_btn = W.QPushButton(), W.QPushButton(), W.QPushButton()
         top.addWidget(self.enable_cb); top.addSpacing(12)
-        top.addWidget(self.preset_lbl); top.addWidget(self.preset_cb, 1)
+        top.addWidget(self.preset_lbl); top.addWidget(self.preset_btn, 1)
         top.addWidget(self.save_btn); top.addWidget(self.del_btn)
         top.addStretch(0); top.addWidget(self.add_btn)
         lay.addLayout(top)
@@ -116,7 +136,6 @@ class EqPanel(W.QWidget):
         self.add_btn.clicked.connect(lambda: self.add_band())
         self.save_btn.clicked.connect(self._save_preset)
         self.del_btn.clicked.connect(self._delete_preset)
-        self.preset_cb.activated.connect(self._preset_chosen)
         self.plot.double_clicked.connect(lambda f, g: self.add_band(eq.band("peak", f, round(g, 1), 1.0)))
         self.table.itemSelectionChanged.connect(self._table_selected)
         self.retranslate(lang)
@@ -136,19 +155,57 @@ class EqPanel(W.QWidget):
         if self.table.rowCount():
             self._rebuild()
 
+    def _preset_bands(self, key: str):
+        kind, _, name = (key or "").partition(":")
+        if kind == "builtin":
+            return eq.PRESETS.get(name)
+        if kind == "user":
+            return self.user_presets.get(name)
+        return None
+
+    def _preset_name(self, key: str) -> str:
+        kind, _, name = key.partition(":")
+        return tr(f"eq.preset.{name}", self.lang) if kind == "builtin" else f"★ {name}"
+
     def _fill_presets(self):
-        cur = self.preset_cb.currentData()
-        self.preset_cb.blockSignals(True)
-        self.preset_cb.clear()
-        self.preset_cb.addItem(tr("eq.preset_none", self.lang), None)
-        for k in eq.PRESETS:
-            self.preset_cb.addItem(tr(f"eq.preset.{k}", self.lang), f"builtin:{k}")
-        for k in sorted(self.user_presets):
-            self.preset_cb.addItem(f"★ {k}", f"user:{k}")
-        i = self.preset_cb.findData(cur)
-        self.preset_cb.setCurrentIndex(max(0, i))
-        self.preset_cb.blockSignals(False)
-        self.del_btn.setEnabled(bool(cur and cur.startswith("user:")))
+        m = self.preset_menu
+        m.clear()
+        self.preset_actions = {}
+        clear = m.addAction(tr("eq.preset_clear", self.lang), self.clear_presets)
+        clear.setEnabled(bool(self.selection))
+        m.addSeparator()
+        keys = [f"builtin:{k}" for k in eq.PRESETS] + [f"user:{k}" for k in sorted(self.user_presets)]
+        for n, k in enumerate(keys):
+            if n and k.startswith("user:") and not keys[n - 1].startswith("user:"):
+                m.addSeparator()
+            a = m.addAction(self._preset_name(k))
+            a.setCheckable(True); a.setChecked(k in self.selection)
+            a.toggled.connect(lambda on, k=k: self.toggle_preset(k, on))
+            self.preset_actions[k] = a
+        self._update_preset_button()
+
+    def _update_menu(self):
+        """Grey out presets that would need more than 8 bands together with the ticked ones."""
+        full = tr("eq.full", self.lang)
+        for k, a in self.preset_actions.items():
+            if k in self.selection:
+                a.setEnabled(True); a.setText(self._preset_name(k))
+                continue
+            fits = eq.combine([self._preset_bands(x) for x in self.selection + [k]]) is not None
+            a.setEnabled(fits)
+            a.setText(self._preset_name(k) + ("" if fits else f"  ({full})"))
+
+    def _update_preset_button(self):
+        text = " + ".join(self._preset_name(k) for k in self.selection) or tr("eq.preset_none", self.lang)
+        self.preset_btn.setToolTip(text)
+        w = max(80, self.preset_btn.width() - 28)
+        self.preset_btn.setText(self.preset_btn.fontMetrics().elidedText(text, QtCore.Qt.ElideRight, w) + "  ▾")
+        self.del_btn.setEnabled(any(k.startswith("user:") for k in self.selection))
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        if hasattr(self, "preset_actions"):
+            self._update_preset_button()
 
     # ---------- model ----------
     def _emit(self):
@@ -310,15 +367,25 @@ class EqPanel(W.QWidget):
             self._select(rows[0].row())
 
     # ---------- presets ----------
-    def _preset_chosen(self, idx: int):
-        d = self.preset_cb.itemData(idx)
-        self.del_btn.setEnabled(bool(d and d.startswith("user:")))
-        if not d:
-            return
-        kind, name = d.split(":", 1)
-        bands = eq.PRESETS.get(name, []) if kind == "builtin" else self.user_presets.get(name, [])
+    def toggle_preset(self, key: str, on: bool):
+        self.select_presets([k for k in self.selection if k != key] + ([key] if on else []))
+
+    def clear_presets(self):
+        self.select_presets([])
+
+    def select_presets(self, keys: list[str]) -> bool:
+        """Tick exactly these presets and load their merged bands. False if they do not fit."""
+        keys = [k for k in dict.fromkeys(keys) if self._preset_bands(k) is not None]
+        bands = eq.combine([self._preset_bands(k) for k in keys])
+        if bands is None:
+            self._fill_presets()            # undo the tick in the menu
+            return False
+        self.selection = keys
+        self._fill_presets()
         self.enable_cb.blockSignals(True); self.enable_cb.setChecked(bool(bands)); self.enable_cb.blockSignals(False)
         self.set_bands(copy.deepcopy(bands))
+        self.selection_changed.emit(list(keys))
+        return True
 
     def _save_preset(self):
         name, ok = W.QInputDialog.getText(self, tr("eq.save", self.lang), tr("eq.save_prompt", self.lang))
@@ -329,15 +396,19 @@ class EqPanel(W.QWidget):
 
     def save_preset(self, name: str):
         self.user_presets[name] = copy.deepcopy(self.bands)
-        self._fill_presets()
-        self.preset_cb.setCurrentIndex(self.preset_cb.findData(f"user:{name}"))
-        self.del_btn.setEnabled(True)
         self.presets_changed.emit(copy.deepcopy(self.user_presets))
+        self.selection = [f"user:{name}"]       # the saved curve is now this one preset
+        self._fill_presets()
+        self.selection_changed.emit(list(self.selection))
 
     def _delete_preset(self):
-        d = self.preset_cb.currentData()
-        if d and d.startswith("user:"):
-            self.user_presets.pop(d.split(":", 1)[1], None)
-            self.preset_cb.setCurrentIndex(0)
-            self._fill_presets()
-            self.presets_changed.emit(copy.deepcopy(self.user_presets))
+        """Delete the user's presets that are ticked (built-in ones cannot be deleted)."""
+        gone = [k for k in self.selection if k.startswith("user:")]
+        if not gone:
+            return
+        for k in gone:
+            self.user_presets.pop(k.split(":", 1)[1], None)
+        self.selection = [k for k in self.selection if k not in gone]
+        self._fill_presets()
+        self.presets_changed.emit(copy.deepcopy(self.user_presets))
+        self.selection_changed.emit(list(self.selection))

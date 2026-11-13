@@ -166,8 +166,50 @@ class Equalizer:
         return y.astype(np.float32)
 
 
+MERGE_OCTAVES = 1 / 3      # peaks/shelves of the same type closer than this are merged
+
+
+def combine(presets: list[list[dict]]) -> list[dict] | None:
+    """Merge several presets into one band list, or None if the result needs more than
+    MAX_BANDS bands. Overlaps are resolved so stacking presets does not double up:
+    - one high-pass (highest frequency, steepest slope) and one low-pass (lowest, steepest);
+    - peaks / shelves of the same type within 1/3 octave become one band with the gains
+      added (clamped), centred at the geometric mean, Q averaged;
+    - notches at (almost) the same frequency are kept once, with the narrower Q."""
+    hp = lp = None
+    rest: list[dict] = []
+    for bands in presets:
+        for b in map(normalize, bands):
+            if not b["on"]:
+                continue
+            t = b["type"]
+            if t == "highpass":
+                hp = b if hp is None else dict(hp, freq=max(hp["freq"], b["freq"]),
+                                               slope=max(hp["slope"], b["slope"]))
+                continue
+            if t == "lowpass":
+                lp = b if lp is None else dict(lp, freq=min(lp["freq"], b["freq"]),
+                                               slope=max(lp["slope"], b["slope"]))
+                continue
+            near = (MERGE_OCTAVES if t in GAIN_TYPES else 1 / 12) if t != "bandpass" else 0
+            for i, o in enumerate(rest):
+                if o["type"] == t and near and abs(math.log2(o["freq"] / b["freq"])) < near:
+                    if t in GAIN_TYPES:
+                        rest[i] = normalize(dict(o, freq=math.sqrt(o["freq"] * b["freq"]),
+                                                 gain=o["gain"] + b["gain"], q=(o["q"] + b["q"]) / 2))
+                    else:
+                        rest[i] = dict(o, q=max(o["q"], b["q"]))
+                    break
+            else:
+                rest.append(b)
+    out = [b for b in (hp, lp) if b] + rest
+    out = [b for b in out if not (b["type"] in GAIN_TYPES and abs(b["gain"]) < 0.05)]   # cancelled out
+    if len(out) > MAX_BANDS:
+        return None
+    return sorted(out, key=lambda b: b["freq"])
+
+
 PRESETS: dict[str, list[dict]] = {
-    "flat": [],
     "voice_clarity": [band("highpass", 90, slope=24), band("peak", 250, -3, 1.0),
                       band("peak", 3000, 3, 0.9), band("highshelf", 8000, 2, 0.7)],
     "hum_50": [band("notch", 50, q=8), band("notch", 100, q=8), band("notch", 150, q=8)],

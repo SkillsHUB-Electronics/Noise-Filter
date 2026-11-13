@@ -142,10 +142,12 @@ class MainWindow(W.QMainWindow):
             plots.addLayout(col)
         self.tabs.addTab(spec_tab, "")
         cfg0 = self.pipe.cfg
-        self.eq_panel = EqPanel(freqs, cfg0.eq_enabled, cfg0.eq_bands, self.data.get("eq_presets", {}), self.lang)
+        self.eq_panel = EqPanel(freqs, cfg0.eq_enabled, cfg0.eq_bands, self.data.get("eq_presets", {}), self.lang,
+                                selection=self.data.get("eq_preset_sel", []))
         self.eq_panel.layout().setContentsMargins(4, 4, 4, 4)
         self.eq_panel.changed.connect(lambda on, bands: self._set(eq_enabled=on, eq_bands=bands))
         self.eq_panel.presets_changed.connect(self._eq_presets_changed)
+        self.eq_panel.selection_changed.connect(self._eq_selection_changed)
         self.tabs.addTab(self.eq_panel, "")
         self.dyn_panel = DynamicsPanel(self.pipe.cfg, self.lang)
         self.dyn_panel.changed.connect(lambda kw: self._set(**kw))
@@ -423,6 +425,10 @@ class MainWindow(W.QMainWindow):
         self.data["geometry"] = bytes(self.saveGeometry().toBase64()).decode("ascii")
         try: settings.save(self.data)
         except OSError: pass
+
+    def _eq_selection_changed(self, sel: list):
+        self.data["eq_preset_sel"] = sel
+        self._save()
 
     def _eq_presets_changed(self, presets: dict):
         self.data["eq_presets"] = presets
