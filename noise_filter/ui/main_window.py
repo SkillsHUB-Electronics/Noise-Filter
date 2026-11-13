@@ -114,7 +114,7 @@ class MainWindow(W.QMainWindow):
             g.addWidget(self.lbls[k], r, 0); g.addWidget(s, r, 1); g.addWidget(self.vals[k], r, 2)
         g.addWidget(self.gate_on, 4, 3)
         self.learn_btn, self.train_btn = W.QPushButton(), W.QPushButton()
-        self.train_btn.setEnabled(False)   # training pipeline arrives in a later step
+        self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
         g.addWidget(self.learn_btn, 0, 3); g.addWidget(self.train_btn, 1, 3)
         g.setColumnStretch(1, 1)
         root.addWidget(box)
@@ -159,7 +159,7 @@ class MainWindow(W.QMainWindow):
         self.mode_cb.blockSignals(False)
         for k in self.lbls: self.lbls[k].setText(t(f"label.{k}"))
         self.gate_on.setText(t("label.gate_on"))
-        self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("noise.train"))
+        self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("model.check"))
         self.hint.setText(t("hint.virtualmic"))
 
     # ---------- behaviour ----------
@@ -186,13 +186,27 @@ class MainWindow(W.QMainWindow):
             return
         self._set(denoise=mode)
 
-    def _check_model_update(self):
-        """Silent background check; a newer verified model is swapped in live."""
+    def _check_model_update(self, manual: bool = False):
+        """Background check; a newer verified model is swapped in live. The automatic check at
+        start-up stays quiet; a check from the button always reports what happened."""
+        self._manual_check = manual
+        if manual:
+            self.train_btn.setEnabled(False)
+            self.status.setText(tr("model.checking", self.lang))
         model_update.update_in_background(lambda entry, err: self._model_signal.done.emit(entry, err))
 
     def _model_update_done(self, entry, err):
+        manual, self._manual_check = getattr(self, "_manual_check", False), False
+        self.train_btn.setEnabled(True)
         if entry is None:
-            return                       # up to date or offline: keep quiet
+            if manual:                   # automatic check: keep quiet when up to date or offline
+                cur = model_update.current_model()
+                if err is not None:
+                    self.status.setText(f"{tr('model.check_failed', self.lang)}: {err}")
+                else:
+                    self.status.setText(tr("model.latest", self.lang).format(
+                        v=cur["version"] if cur else tr("model.missing", self.lang)))
+            return
         self.retranslate()
         if self.pipe.cfg.denoise == "onnx":
             self._set(onnx_model=str(entry["path"]))
