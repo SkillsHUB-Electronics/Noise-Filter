@@ -147,6 +147,72 @@ def test_send_noise_file_flow(tmp_path, monkeypatch):
     w.close()
 
 
+def test_record_noise_flow(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    import numpy as np
+    from noise_filter import contribute
+    from noise_filter.ui import main_window as mw
+    monkeypatch.setattr(contribute, "enabled", lambda: True)
+    w = mw.MainWindow(demo=True)
+    assert not w.contrib_rec.isHidden()
+    boxes, sent, events = [], [], []
+    monkeypatch.setattr(W.QMessageBox, "information", lambda *a: boxes.append(a[2]))
+    monkeypatch.setattr(w._uploader, "run", lambda fn, *a: sent.append((fn, a)))
+
+    w.in_cb.clear()                                           # no microphone at all
+    w._record_noise()
+    assert "microphone" in boxes[-1].lower()
+
+    class FakeEngine:                                         # started only for the recording
+        def start(self): events.append("start")
+        def stop(self): events.append("stop")
+    w.in_cb.addItem("Mic", 1)
+    monkeypatch.setattr(w, "_make_engine", lambda: FakeEngine())
+    room = np.tile(np.random.default_rng(1).standard_normal(48000).astype(np.float32) * 0.02, 11)
+
+    def fake_rec(dlg):
+        dlg.pipe.capture_start(len(room)); dlg.raw, dlg.dropped = room, 0
+        dlg.pipe.capture_stop(); return W.QDialog.Accepted
+    monkeypatch.setattr(mw.RecordDialog, "exec", fake_rec)
+    got = []
+    from types import SimpleNamespace
+    w._rec_signal = SimpleNamespace(ready=SimpleNamespace(emit=got.append))
+    w._record_noise()
+    import time
+    for _ in range(200):
+        if got: break
+        time.sleep(0.05)
+    assert events == ["start", "stop"] and got
+
+    def send_exec(dlg):
+        assert dlg.never_btn.isHidden() and dlg.own.isChecked()   # own-recording box is for files only
+        dlg.consent.setChecked(True); dlg._send(); return W.QDialog.Accepted
+    monkeypatch.setattr(mw.ContributeDialog, "exec", send_exec)
+    w._offer_recording((room[:480000], "ok"))
+    assert sent[-1][0] is contribute.upload
+    w._offer_recording((None, "speech"))
+    assert "voices" in boxes[-1]
+    w.close()
+
+
+def test_record_dialog_counts_down_and_captures(tmp_path, monkeypatch):
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    import numpy as np
+    from noise_filter.ui.contribute_dialog import RecordDialog
+
+    class Pipe:
+        class in_analyzer:
+            @staticmethod
+            def level_db(): return -40.0
+        def capture_start(self, n): self.n = n
+        def capture_stop(self): return np.zeros(self.n, np.float32), 0
+    d = RecordDialog(Pipe(), "en", seconds=0.3)
+    assert d.exec() == W.QDialog.Accepted and len(d.raw) == int(0.3 * 48000)
+
+
 def tr_contains(text, word):
     return word in text
 

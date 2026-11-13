@@ -50,6 +50,15 @@ def test_prepare_trims_and_drops_gappy_recordings(monkeypatch):
     assert contribute.prepare(x, dropped=2) is None
 
 
+def test_prepare_with_reason(monkeypatch):
+    monkeypatch.setattr(contribute, "model_keeps_voice", lambda x, p=None: None)
+    long = np.tile(fan(), 4)                                    # 12 s
+    x, why = contribute.prepare_with_reason(long)
+    assert why == "ok" and len(x) == contribute.RECORD_SECONDS * SR
+    assert contribute.prepare_with_reason(long, dropped=1) == (None, "gaps")
+    assert contribute.prepare_with_reason(np.tile(fan() + voice(), 4))[1] == "speech"
+
+
 def test_encode_wav():
     b = contribute.encode_wav(fan())
     with wave.open(io.BytesIO(b)) as w:

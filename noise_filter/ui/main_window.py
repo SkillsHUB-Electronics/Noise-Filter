@@ -10,7 +10,7 @@ from . import autostart, settings
 from .spectrum_plot import SpectrumPlot
 from .eq_panel import EqPanel
 from .dynamics_panel import DynamicsPanel
-from .contribute_dialog import ContributeDialog, UploadWorker
+from .contribute_dialog import ContributeDialog, RecordDialog, UploadWorker
 
 LANGS = [("en", "English"), ("id", "Bahasa Indonesia")]
 LEARN_SECONDS = 3
@@ -189,7 +189,9 @@ class MainWindow(W.QMainWindow):
 
         # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
         self.contrib_cb, self.contrib_del, self.contrib_file = W.QCheckBox(), W.QPushButton(), W.QPushButton()
+        self.contrib_rec = W.QPushButton()
         self.contrib_file.clicked.connect(self._contribute_file)
+        self.contrib_rec.clicked.connect(self._record_noise)
         self.contrib_cb.setChecked(contribute.load_state().get("ask", True))
         self.contrib_cb.toggled.connect(lambda v: contribute.save_state(ask=v))
         self.contrib_del.clicked.connect(self._delete_samples)
@@ -197,6 +199,8 @@ class MainWindow(W.QMainWindow):
         self._sample_signal.ready.connect(self._offer_sample)
         self._file_signal = _SampleSignal()
         self._file_signal.ready.connect(self._offer_file)
+        self._rec_signal = _SampleSignal()
+        self._rec_signal.ready.connect(self._offer_recording)
         self._uploader = UploadWorker()
         self._uploader.done.connect(self._upload_done)
         self._capturing = False
@@ -229,7 +233,8 @@ class MainWindow(W.QMainWindow):
         row = W.QHBoxLayout(); row.addWidget(self.train_btn); row.addStretch(1)
         al.addLayout(row)
         al.addWidget(self.contrib_cb)
-        row = W.QHBoxLayout(); row.addWidget(self.contrib_file); row.addWidget(self.contrib_del); row.addStretch(1)
+        row = W.QHBoxLayout(); row.addWidget(self.contrib_rec); row.addWidget(self.contrib_file); row.addWidget(self.contrib_del)
+        row.addStretch(1)
         al.addLayout(row)
         # one column of equally wide boxes, in order of how often they are needed
         for b in (self.gen_box, self.bg_box, self.ai_box):
@@ -352,10 +357,11 @@ class MainWindow(W.QMainWindow):
         self.gate_on.setText(t("label.gate"))
         self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("model.check"))
         self.contrib_cb.setText(t("contrib.offer")); self.contrib_del.setText(t("contrib.delete"))
-        self.contrib_file.setText(t("contrib.file"))
+        self.contrib_file.setText(t("contrib.file")); self.contrib_rec.setText(t("contrib.record"))
         on = contribute.enabled()
         self.contrib_cb.setVisible(on)
         self.contrib_file.setVisible(on)
+        self.contrib_rec.setVisible(on)
         self.contrib_del.setVisible(on and int(contribute.load_state().get("sent", 0)) > 0)
         self.hint.setText(t("hint.virtualmic"))
         if hasattr(self, "tray"):
@@ -471,17 +477,19 @@ class MainWindow(W.QMainWindow):
             for i in range(self.out_cb.count()):
                 if "cable input" in self.out_cb.itemText(i).lower(): self.out_cb.setCurrentIndex(i); break
 
+    def _make_engine(self):
+        if self.native_engine:
+            return native.NativeEngine(self.pipe, self.in_cb.currentData(),
+                                       self.out_cb.currentData(), exclusive=self.excl.isChecked())
+        from ..audio.engine import Engine
+        return Engine(self.pipe, self.in_cb.currentData(), self.out_cb.currentData(),
+                      exclusive=self.excl.isChecked())
+
     def toggle_engine(self, on: bool):
         t = lambda k: tr(k, self.lang)
         if on:
             try:
-                if self.native_engine:
-                    self.engine = native.NativeEngine(self.pipe, self.in_cb.currentData(),
-                                                      self.out_cb.currentData(), exclusive=self.excl.isChecked())
-                else:
-                    from ..audio.engine import Engine
-                    self.engine = Engine(self.pipe, self.in_cb.currentData(), self.out_cb.currentData(),
-                                         exclusive=self.excl.isChecked())
+                self.engine = self._make_engine()
                 self.engine.start()
             except Exception as e:
                 self.start_btn.blockSignals(True); self.start_btn.setChecked(False); self.start_btn.blockSignals(False)
@@ -531,6 +539,51 @@ class MainWindow(W.QMainWindow):
             self._uploader.run(contribute.upload, sample, dlg.category)
         elif dlg.never:
             self.contrib_cb.setChecked(False)
+
+    def _record_noise(self):
+        """Record a few seconds of room noise from the chosen microphone and offer to send it.
+        Uses the running audio engine, or starts one just for the recording."""
+        t = lambda k: tr(k, self.lang)
+        temp = None
+        if not self.engine:
+            if self.in_cb.currentData() is None:
+                self._file_failed(t("contrib.record_nomic"))
+                return
+            try:
+                temp = self._make_engine()
+                temp.start()
+            except Exception as e:
+                self._file_failed(f"{t('contrib.record_nomic')} ({e})")
+                return
+        try:
+            dlg = RecordDialog(self.pipe, self.lang, self)
+            ok = dlg.exec() == W.QDialog.Accepted
+        finally:
+            if temp is not None:
+                temp.stop()
+        if not ok:
+            return
+        raw, dropped = dlg.raw, dlg.dropped
+        self.status.setText(t("contrib.file_checking"))
+        self.contrib_rec.setEnabled(False)
+        import threading    # screening runs the AI model: keep it off the UI thread
+        threading.Thread(target=lambda: self._rec_signal.ready.emit(contribute.prepare_with_reason(raw, dropped)),
+                         daemon=True, name="screen-recording").start()
+
+    def _offer_recording(self, result):
+        sample, reason = result
+        self.contrib_rec.setEnabled(True)
+        self.status.setText("")
+        t = lambda k: tr(k, self.lang)
+        if sample is None:
+            W.QMessageBox.information(self, t("contrib.title"),
+                                      t("contrib.record_none").format(reason=t(f"contrib.reason.{reason}")))
+            return
+        dlg = ContributeDialog(sample, self.lang, self)
+        dlg.never_btn.setVisible(False)      # the user asked for this one: no "don't ask again"
+        if dlg.exec() == W.QDialog.Accepted and dlg.category:
+            self.status.setText(t("contrib.sending"))
+            self._uploader.run(contribute.upload, sample, dlg.category)
 
     def _contribute_file(self):
         """Let the user send noise from an audio file they recorded themselves."""
