@@ -9,7 +9,6 @@
   "analyzer.input": "Input spectrum",
   "analyzer.output": "Output spectrum",
   "noise.learn": "Learn my room noise",
-  "noise.train": "Train AI model",
   "hint.virtualmic": "Install VB-Cable, then select \"CABLE Output\" as the microphone in TeamTalk / Meet.",
   "device.exclusive": "Exclusive mode (lowest latency)",
   "engine.start": "Start",
@@ -30,5 +29,9 @@
   "model.updated": "AI model updated to version {v}.",
   "model.missing": "not installed",
   "denoise.off": "Off",
-  "model.error": "Could not load the AI model"
+  "model.error": "Could not load the AI model",
+  "model.check": "Check for AI model update",
+  "model.checking": "Checking for a newer AI model…",
+  "model.latest": "You have the latest AI model ({v}).",
+  "model.check_failed": "Could not check for updates (offline?)"
 }

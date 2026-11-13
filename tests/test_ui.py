@@ -58,3 +58,21 @@ def test_ai_mode_uses_installed_model(tmp_path, monkeypatch):
     w._model_update_done({"name": "nfnet", "version": "test2", "path": model}, None)
     assert "test2" in w.status.text()
     w.close()
+
+
+def test_model_update_button_reports_result(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    from noise_filter import model_update
+    from noise_filter.ui.main_window import MainWindow
+    w = MainWindow(demo=True)
+    assert w.train_btn.isEnabled()
+    monkeypatch.setattr(model_update, "update_in_background", lambda cb: cb(None, None))
+    monkeypatch.setattr(model_update, "current_model", lambda: {"version": "2026.11.12"})
+    w.train_btn.click()
+    assert "2026.11.12" in w.status.text() and w.train_btn.isEnabled()
+    monkeypatch.setattr(model_update, "update_in_background", lambda cb: cb(None, OSError("offline")))
+    w.train_btn.click()
+    assert "offline" in w.status.text()
+    w.close()

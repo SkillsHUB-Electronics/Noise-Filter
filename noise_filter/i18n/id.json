@@ -9,7 +9,6 @@
   "analyzer.input": "Spektrum input",
   "analyzer.output": "Spektrum output",
   "noise.learn": "Pelajari noise ruangan saya",
-  "noise.train": "Latih model AI",
   "hint.virtualmic": "Pasang VB-Cable, lalu pilih \"CABLE Output\" sebagai mikrofon di TeamTalk / Meet.",
   "device.exclusive": "Mode eksklusif (latensi terendah)",
   "engine.start": "Mulai",
@@ -30,5 +29,9 @@
   "model.updated": "Model AI diperbarui ke versi {v}.",
   "model.missing": "belum terpasang",
   "denoise.off": "Mati",
-  "model.error": "Gagal memuat model AI"
+  "model.error": "Gagal memuat model AI",
+  "model.check": "Cek update model AI",
+  "model.checking": "Mencari model AI yang lebih baru…",
+  "model.latest": "Model AI sudah versi terbaru ({v}).",
+  "model.check_failed": "Gagal mengecek update (tidak ada internet?)"
 }
