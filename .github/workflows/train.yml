@@ -2,6 +2,9 @@ name: Train AI model
 
 # Runs on a GitHub-hosted CPU runner (no GPU needed for this small model).
 # Start it from the Actions tab ("Run workflow"), or push a commit whose message contains [train].
+# It also runs every Sunday 01:00 UTC: when users contributed new noise samples since the shipped
+# model, it retrains with them and, if the new model passes the quality gate, publishes it to the
+# default branch, so every app picks it up with its next update check.
 # When the new model beats the spectral DSP baseline, the workflow commits it to
 # noise_filter/models/ on the same branch. Merging that branch ships the model to every app.
 on:
@@ -17,13 +20,15 @@ on:
         description: "Model version (empty = date)"
         default: ""
   push:
+  schedule:
+    - cron: "0 1 * * 0"
 
 permissions:
   contents: write
 
 jobs:
   train:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[train]')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.head_commit.message, '[train]')
     runs-on: ubuntu-latest
     timeout-minutes: 345
     env:
@@ -58,7 +63,25 @@ jobs:
           pip install boto3
           python -m training.contrib_samples --out data/contrib --base-noise data/noise
           { echo "### Contributed noise"; echo '```json'; cat data/contrib/contrib_report.json; echo '```'; } >> $GITHUB_STEP_SUMMARY
+      - name: Anything new for the weekly run?
+        if: github.event_name == 'schedule'
+        run: |
+          NEW=$(python - <<'PY'
+          import json, pathlib
+          r = pathlib.Path("data/contrib/contrib_report.json")
+          now = json.loads(r.read_text()).get("accepted_total", 0) if r.is_file() else 0
+          m = pathlib.Path("noise_filter/models/manifest.json")
+          shipped = json.loads(m.read_text())["latest"].get("contrib_samples", 0) if m.is_file() else 0
+          print(now - shipped)
+          PY
+          )
+          echo "New accepted samples since the shipped model: $NEW"
+          if [ "$NEW" -le 0 ]; then
+            echo "SKIP=1" >> $GITHUB_ENV
+            echo "No new contributed noise this week; training skipped." >> $GITHUB_STEP_SUMMARY
+          fi
       - name: Train
+        if: env.SKIP != '1'
         run: |
           VER="${{ github.event.inputs.version }}"; VER="${VER:-$(date +%Y.%m.%d)}"
           echo "VER=$VER" >> $GITHUB_ENV
@@ -66,13 +89,14 @@ jobs:
             --batch 16 --workers 3 --version "$VER" --out runs/latest
           cat runs/latest/report.md >> $GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && env.SKIP != '1'
         with:
           name: nfnet-${{ env.VER }}
           path: runs/latest
       - name: Quality gate and publish to noise_filter/models
+        if: env.SKIP != '1'
         run: |
-          if python -m training.publish runs/latest noise_filter/models; then
+          if python -m training.publish runs/latest noise_filter/models data/contrib/contrib_report.json; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add -f noise_filter/models

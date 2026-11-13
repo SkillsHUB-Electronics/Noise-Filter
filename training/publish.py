@@ -1,6 +1,7 @@
 """Quality gate + publish: copy a trained model into noise_filter/models/ and update manifest.json.
 
-    python -m training.publish runs/latest noise_filter/models     # exit code 1 = not published
+    python -m training.publish runs/latest noise_filter/models [data/contrib/contrib_report.json]
+    # exit code 1 = not published
 
 The model is published only when it beats the spectral DSP baseline and is not worse than
 the model that ships today (scored on the same mixtures by train.py). Merging the branch that
@@ -32,7 +33,7 @@ def passes(m: dict) -> tuple[bool, str]:
     return True, "ok"
 
 
-def publish(run_dir: Path, models_dir: Path) -> bool:
+def publish(run_dir: Path, models_dir: Path, contrib_report: Path | None = None) -> bool:
     meta = json.loads((run_dir / "model.json").read_text())
     ok, why = passes(meta["metrics"])
     print(f"quality gate: {why}")
@@ -54,10 +55,13 @@ def publish(run_dir: Path, models_dir: Path) -> bool:
                         for k in ("noisy", "spectral", "nfnet")},
         },
     }
+    if contrib_report and contrib_report.is_file():   # lets the weekly run skip when nothing new arrived
+        manifest["latest"]["contrib_samples"] = int(json.loads(contrib_report.read_text()).get("accepted_total", 0))
     (models_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"published {name}")
     return True
 
 
 if __name__ == "__main__":
-    sys.exit(0 if publish(Path(sys.argv[1]), Path(sys.argv[2])) else 1)
+    report = Path(sys.argv[3]) if len(sys.argv) > 3 else None
+    sys.exit(0 if publish(Path(sys.argv[1]), Path(sys.argv[2]), report) else 1)
