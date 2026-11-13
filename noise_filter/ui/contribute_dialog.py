@@ -89,67 +89,6 @@ class ContributeDialog(W.QDialog):
         self.reject()
 
 
-class RecordDialog(W.QDialog):
-    """'Record noise': records the raw microphone input through the running pipeline for a few
-    seconds with a countdown and a level meter. After exec(): .raw / .dropped (Accepted) or
-    nothing (Rejected = cancelled)."""
-
-    def __init__(self, pipe, lang: str, parent=None, seconds: float | None = None):
-        super().__init__(parent)
-        t = lambda k: tr(k, lang)
-        self.pipe, self.raw, self.dropped = pipe, None, 0
-        self.total = float(seconds if seconds is not None else contribute.TRIM_START + contribute.RECORD_SECONDS)
-        self.setWindowTitle(t("contrib.record_title"))
-        self.setMinimumWidth(380)
-        lay = W.QVBoxLayout(self)
-        tip = W.QLabel(t("contrib.record_tip"))
-        tip.setWordWrap(True)
-        lay.addWidget(tip)
-        self.left = W.QLabel()
-        f = self.left.font(); f.setPointSize(f.pointSize() + 8); f.setBold(True); self.left.setFont(f)
-        self.left.setAlignment(QtCore.Qt.AlignCenter)
-        lay.addWidget(self.left)
-        self.progress = W.QProgressBar(); self.progress.setRange(0, 1000); self.progress.setTextVisible(False)
-        self.level = W.QProgressBar(); self.level.setRange(-80, 0); self.level.setTextVisible(False)
-        self.level.setMaximumHeight(8)
-        lay.addWidget(self.progress); lay.addWidget(self.level)
-        row = W.QHBoxLayout(); row.addStretch(1)
-        cancel = W.QPushButton(t("contrib.record_cancel")); cancel.clicked.connect(self.reject)
-        row.addWidget(cancel); lay.addLayout(row)
-        self._t0 = None
-        self._timer = QtCore.QTimer(self, interval=50, timeout=self._tick)
-        self._fmt = t("contrib.record_left")
-
-    def showEvent(self, e):
-        super().showEvent(e)
-        if self._t0 is None:
-            import time
-            self._now = time.monotonic
-            self._t0 = self._now()
-            self.pipe.capture_start(int(self.total * contribute.SR))
-            self._timer.start()
-            self._tick()
-
-    def _tick(self):
-        el = self._now() - self._t0
-        self.progress.setValue(int(min(1.0, el / self.total) * 1000))
-        self.left.setText(self._fmt.format(s=max(0, int(self.total - el + 0.999))))
-        try:
-            self.level.setValue(int(max(-80, min(0, self.pipe.in_analyzer.level_db()))))
-        except Exception:
-            pass
-        if el >= self.total:
-            self._timer.stop()
-            self.raw, self.dropped = self.pipe.capture_stop()
-            self.accept()
-
-    def reject(self):
-        if self._timer.isActive():
-            self._timer.stop()
-            self.pipe.capture_stop()
-        super().reject()
-
-
 class UploadWorker(QtCore.QObject):
     """Runs upload / delete off the UI thread; `done(ok, message)` arrives on the UI thread."""
     done = QtCore.Signal(bool, str)
