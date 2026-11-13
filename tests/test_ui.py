@@ -147,6 +147,61 @@ def test_send_noise_file_flow(tmp_path, monkeypatch):
     w.close()
 
 
+def test_record_noise_flow(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    import numpy as np
+    from noise_filter import contribute
+    from noise_filter.ui import main_window as mw
+    monkeypatch.setattr(contribute, "enabled", lambda: True)
+    w = mw.MainWindow(demo=True)
+    assert not w.contrib_rec.isHidden()
+    boxes, sent, events = [], [], []
+    monkeypatch.setattr(W.QMessageBox, "information", lambda *a: boxes.append(a[2]))
+    monkeypatch.setattr(w._uploader, "run", lambda fn, *a: sent.append((fn, a)))
+
+    w.in_cb.clear()                                           # no microphone at all
+    w._record_noise()
+    assert "microphone" in boxes[-1].lower()
+
+    class FakeEngine:                                         # started only for the recording
+        def start(self): events.append("start")
+        def stop(self): events.append("stop")
+    w.in_cb.addItem("Mic", 1)
+    monkeypatch.setattr(w, "_make_engine", lambda: FakeEngine())
+    room = np.tile(np.random.default_rng(1).standard_normal(48000).astype(np.float32) * 0.02, 11)
+    got = []
+    from types import SimpleNamespace
+    w._rec_signal = SimpleNamespace(ready=SimpleNamespace(emit=got.append))
+    assert w.contrib_rec.parent() is w.learn_btn.parent()     # on the Filter tab, beside Learn noise
+
+    w._record_noise()                                         # start, then cancel by clicking again
+    assert w._rec and w.contrib_rec.text().startswith("■") and not w.learn_btn.isEnabled()
+    w._record_noise()
+    assert w._rec is None and events == ["start", "stop"] and w.learn_btn.isEnabled() and not got
+
+    w._record_noise()
+    monkeypatch.setattr(w.pipe, "capture_stop", lambda: (room, 0))
+    w._rec["t0"] -= 60                                        # time is up
+    w._rec_tick()
+    import time
+    for _ in range(200):
+        if got: break
+        time.sleep(0.05)
+    assert events == ["start", "stop", "start", "stop"] and got and got[0][1] in ("ok", "speech")
+
+    def send_exec(dlg):
+        assert dlg.never_btn.isHidden() and dlg.own.isChecked()   # own-recording box is for files only
+        dlg.consent.setChecked(True); dlg._send(); return W.QDialog.Accepted
+    monkeypatch.setattr(mw.ContributeDialog, "exec", send_exec)
+    w._offer_recording((room[:480000], "ok"))
+    assert sent[-1][0] is contribute.upload
+    w._offer_recording((None, "speech"))
+    assert "voices" in boxes[-1]
+    w.close()
+
+
 def tr_contains(text, word):
     return word in text
 

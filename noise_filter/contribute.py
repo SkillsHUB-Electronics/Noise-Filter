@@ -32,6 +32,7 @@ SAMPLES_URL = os.environ.get(
 CATEGORIES = ["fan_ac", "traffic", "keyboard", "crowd", "machine", "rain_wind", "other"]
 CONSENT = "cc0-v1"
 TRIM_START = 0.25       # seconds dropped at the start (button click, engine settling)
+RECORD_SECONDS = 10     # length of a "Record noise" recording (after the trimmed start)
 MIN_SECONDS = 2.0
 MAX_SECONDS = 10.0
 SOURCES = ["mic", "file"]
@@ -156,10 +157,21 @@ def check_sample(x: np.ndarray, model_path: str | None = None) -> tuple[bool, st
     return True, "ok"
 
 
+def prepare_with_reason(raw: np.ndarray, dropped: int = 0,
+                        max_seconds: float = MAX_SECONDS) -> tuple[np.ndarray | None, str]:
+    """Trim the start and cap the length of a microphone recording.
+    Returns (samples, "ok") or (None, reason) where reason is a check_sample reason or "gaps"."""
+    if dropped:
+        return None, "gaps"                      # the recording has gaps
+    x = np.asarray(raw, np.float32)[int(TRIM_START * SR):int((TRIM_START + max_seconds) * SR)]
+    ok, reason = check_sample(x)
+    return (x, "ok") if ok else (None, reason)
+
+
 def prepare(raw: np.ndarray, dropped: int = 0) -> np.ndarray | None:
     """Trim the start and cap the length of a 'Learn noise' recording; None if unusable."""
     if dropped:
-        return None                              # the recording has gaps
+        return None
     x = np.asarray(raw, np.float32)[int(TRIM_START * SR):int(MAX_SECONDS * SR)]
     ok, _ = check_sample(x)
     return x if ok else None

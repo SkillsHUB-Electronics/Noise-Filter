@@ -173,9 +173,11 @@ class MainWindow(W.QMainWindow):
         for v in self.vals.values():
             v.setMinimumWidth(val_w); v.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         self.learn_btn, self.train_btn = W.QPushButton(), W.QPushButton()
+        self.contrib_rec = W.QPushButton()      # F3 "Record noise": next to Learn noise, spectrum stays visible
         self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
         # one column: label | control | value, every slider the same width, in signal-chain order
-        top = W.QHBoxLayout(); top.addWidget(self.bypass); top.addStretch(1); top.addWidget(self.learn_btn)
+        top = W.QHBoxLayout(); top.addWidget(self.bypass); top.addStretch(1)
+        top.addWidget(self.contrib_rec); top.addWidget(self.learn_btn)
         g.addLayout(top, 0, 0, 1, 3)
         g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
         for r, (lbl, sl_, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
@@ -190,6 +192,7 @@ class MainWindow(W.QMainWindow):
         # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
         self.contrib_cb, self.contrib_del, self.contrib_file = W.QCheckBox(), W.QPushButton(), W.QPushButton()
         self.contrib_file.clicked.connect(self._contribute_file)
+        self.contrib_rec.clicked.connect(self._record_noise)
         self.contrib_cb.setChecked(contribute.load_state().get("ask", True))
         self.contrib_cb.toggled.connect(lambda v: contribute.save_state(ask=v))
         self.contrib_del.clicked.connect(self._delete_samples)
@@ -197,6 +200,10 @@ class MainWindow(W.QMainWindow):
         self._sample_signal.ready.connect(self._offer_sample)
         self._file_signal = _SampleSignal()
         self._file_signal.ready.connect(self._offer_file)
+        self._rec_signal = _SampleSignal()
+        self._rec_signal.ready.connect(self._offer_recording)
+        self._rec = None                         # running "Record noise": {t0, total, temp engine}
+        self._rec_timer = QtCore.QTimer(self, interval=100, timeout=self._rec_tick)
         self._uploader = UploadWorker()
         self._uploader.done.connect(self._upload_done)
         self._capturing = False
@@ -353,9 +360,12 @@ class MainWindow(W.QMainWindow):
         self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("model.check"))
         self.contrib_cb.setText(t("contrib.offer")); self.contrib_del.setText(t("contrib.delete"))
         self.contrib_file.setText(t("contrib.file"))
+        if not self._rec:
+            self.contrib_rec.setText(t("contrib.record"))
         on = contribute.enabled()
         self.contrib_cb.setVisible(on)
         self.contrib_file.setVisible(on)
+        self.contrib_rec.setVisible(on)
         self.contrib_del.setVisible(on and int(contribute.load_state().get("sent", 0)) > 0)
         self.hint.setText(t("hint.virtualmic"))
         if hasattr(self, "tray"):
@@ -471,17 +481,19 @@ class MainWindow(W.QMainWindow):
             for i in range(self.out_cb.count()):
                 if "cable input" in self.out_cb.itemText(i).lower(): self.out_cb.setCurrentIndex(i); break
 
+    def _make_engine(self):
+        if self.native_engine:
+            return native.NativeEngine(self.pipe, self.in_cb.currentData(),
+                                       self.out_cb.currentData(), exclusive=self.excl.isChecked())
+        from ..audio.engine import Engine
+        return Engine(self.pipe, self.in_cb.currentData(), self.out_cb.currentData(),
+                      exclusive=self.excl.isChecked())
+
     def toggle_engine(self, on: bool):
         t = lambda k: tr(k, self.lang)
         if on:
             try:
-                if self.native_engine:
-                    self.engine = native.NativeEngine(self.pipe, self.in_cb.currentData(),
-                                                      self.out_cb.currentData(), exclusive=self.excl.isChecked())
-                else:
-                    from ..audio.engine import Engine
-                    self.engine = Engine(self.pipe, self.in_cb.currentData(), self.out_cb.currentData(),
-                                         exclusive=self.excl.isChecked())
+                self.engine = self._make_engine()
                 self.engine.start()
             except Exception as e:
                 self.start_btn.blockSignals(True); self.start_btn.setChecked(False); self.start_btn.blockSignals(False)
@@ -501,19 +513,21 @@ class MainWindow(W.QMainWindow):
         self._save()
 
     def learn_noise(self):
+        if self._rec:
+            return
         sp = self.pipe.spectral
         sp.start_learning()
         self._capturing = bool(contribute.enabled() and self.contrib_cb.isChecked() and self.engine
                                and hasattr(self.pipe, "capture_start"))
         if self._capturing:
             self.pipe.capture_start(LEARN_SECONDS * SAMPLE_RATE)
-        self.learn_btn.setEnabled(False)
+        self.learn_btn.setEnabled(False); self.contrib_rec.setEnabled(False)
         self.learn_btn.setText(tr("noise.learning", self.lang).format(s=LEARN_SECONDS))
         QtCore.QTimer.singleShot(LEARN_SECONDS * 1000, self._finish_learn)
 
     def _finish_learn(self):
         self.pipe.spectral.finish_learning()
-        self.learn_btn.setEnabled(True); self.retranslate()
+        self.learn_btn.setEnabled(True); self.contrib_rec.setEnabled(True); self.retranslate()
         self.status.setText(tr("noise.learned", self.lang))
         if self._capturing:
             self._capturing = False
@@ -531,6 +545,76 @@ class MainWindow(W.QMainWindow):
             self._uploader.run(contribute.upload, sample, dlg.category)
         elif dlg.never:
             self.contrib_cb.setChecked(False)
+
+    def _record_noise(self):
+        """Record a few seconds of room noise from the chosen microphone and offer to send it.
+        Runs inline (the button shows the countdown) so the spectrum stays visible. Uses the
+        running audio engine, or starts one just for the recording. Clicking again cancels."""
+        t = lambda k: tr(k, self.lang)
+        if self._rec:
+            self._rec_finish(cancel=True)
+            return
+        temp = None
+        if not self.engine:
+            if self.in_cb.currentData() is None:
+                self._file_failed(t("contrib.record_nomic"))
+                return
+            try:
+                temp = self._make_engine()
+                temp.start()
+            except Exception as e:
+                self._file_failed(f"{t('contrib.record_nomic')} ({e})")
+                return
+        total = contribute.TRIM_START + contribute.RECORD_SECONDS
+        self._rec = {"t0": time.monotonic(), "total": total, "temp": temp}
+        self.pipe.capture_start(int(total * SAMPLE_RATE))
+        self.learn_btn.setEnabled(False)
+        self.status.setText(t("contrib.record_tip"))
+        self._rec_timer.start()
+        self._rec_tick()
+
+    def _rec_tick(self):
+        r = self._rec
+        if not r:
+            return
+        left = r["total"] - (time.monotonic() - r["t0"])
+        if left <= 0:
+            self._rec_finish()
+            return
+        self.contrib_rec.setText("■  " + tr("contrib.record_left", self.lang).format(s=int(left + 0.999)))
+        self.contrib_rec.setToolTip(tr("contrib.record_tip", self.lang))
+
+    def _rec_finish(self, cancel: bool = False):
+        r, self._rec = self._rec, None
+        self._rec_timer.stop()
+        raw, dropped = self.pipe.capture_stop()
+        if r and r["temp"] is not None:
+            r["temp"].stop()
+        self.learn_btn.setEnabled(True)
+        self.retranslate()
+        if cancel:
+            self.status.setText("")
+            return
+        self.status.setText(tr("contrib.file_checking", self.lang))
+        self.contrib_rec.setEnabled(False)
+        import threading    # screening runs the AI model: keep it off the UI thread
+        threading.Thread(target=lambda: self._rec_signal.ready.emit(contribute.prepare_with_reason(raw, dropped)),
+                         daemon=True, name="screen-recording").start()
+
+    def _offer_recording(self, result):
+        sample, reason = result
+        self.contrib_rec.setEnabled(True)
+        self.status.setText("")
+        t = lambda k: tr(k, self.lang)
+        if sample is None:
+            W.QMessageBox.information(self, t("contrib.title"),
+                                      t("contrib.record_none").format(reason=t(f"contrib.reason.{reason}")))
+            return
+        dlg = ContributeDialog(sample, self.lang, self)
+        dlg.never_btn.setVisible(False)      # the user asked for this one: no "don't ask again"
+        if dlg.exec() == W.QDialog.Accepted and dlg.category:
+            self.status.setText(t("contrib.sending"))
+            self._uploader.run(contribute.upload, sample, dlg.category)
 
     def _contribute_file(self):
         """Let the user send noise from an audio file they recorded themselves."""
