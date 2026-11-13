@@ -47,6 +47,7 @@ class DynamicsPanel(W.QWidget):
         g.addWidget(self.comp_on, 0, 0, 1, 3)
         self._rows(g, COMP_PARAMS, start=1)
         g.setColumnStretch(1, 1)
+        self._grids = [g]
         left.addWidget(self.comp_box)
 
         self.lim_box = W.QGroupBox()
@@ -55,6 +56,7 @@ class DynamicsPanel(W.QWidget):
         lg.addWidget(self.lim_on, 0, 0, 1, 3)
         self._rows(lg, LIM_PARAMS, start=1)
         lg.setColumnStretch(1, 1)
+        self._grids.append(lg)
         left.addWidget(self.lim_box)
         left.addStretch(1)
         lay.addLayout(left, 3)
@@ -109,6 +111,9 @@ class DynamicsPanel(W.QWidget):
         for key in self.lbls:
             self.lbls[key].setText(t(f"dyn.{key}"))
         self.comp_gr_lbl.setText(t("dyn.comp_gr")); self.lim_gr_lbl.setText(t("dyn.limiter_gr"))
+        w = max(l.sizeHint().width() for l in self.lbls.values()) + 8   # sliders of both boxes line up
+        for g in self._grids:
+            g.setColumnMinimumWidth(0, w)
 
     def _update_vals(self):
         for key, lo, hi, scale, fmt in COMP_PARAMS + LIM_PARAMS:

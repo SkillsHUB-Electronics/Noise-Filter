@@ -126,9 +126,12 @@ class MainWindow(W.QMainWindow):
 
         # analyzers and equalizer share the middle as tabs
         self.tabs = W.QTabWidget()
+        # every tab owns its controls: spectra + filter, EQ, dynamics, settings
         spec_tab = W.QWidget()
-        plots = W.QHBoxLayout(spec_tab)
-        plots.setContentsMargins(4, 4, 4, 4)
+        self._spec_lay = W.QVBoxLayout(spec_tab)
+        self._spec_lay.setContentsMargins(4, 4, 4, 4)
+        plots = W.QHBoxLayout()
+        self._spec_lay.addLayout(plots, 1)
         freqs = self.pipe.in_analyzer.freqs
         self.in_plot = SpectrumPlot("", "#e0a030", freqs)
         self.out_plot = SpectrumPlot("", "#30b070", freqs)
@@ -169,18 +172,18 @@ class MainWindow(W.QMainWindow):
             v.setMinimumWidth(val_w); v.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         self.learn_btn, self.train_btn = W.QPushButton(), W.QPushButton()
         self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
-        # two columns of label | slider | value, in signal-chain order
-        g.addWidget(self.bypass, 0, 0, 1, 3); g.addWidget(self.learn_btn, 0, 4, 1, 3)
+        # one column: label | control | value, every slider the same width, in signal-chain order
+        top = W.QHBoxLayout(); top.addWidget(self.bypass); top.addStretch(1); top.addWidget(self.learn_btn)
+        g.addLayout(top, 0, 0, 1, 3)
         g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
         for r, (lbl, sl_, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
-                                           (self.lbls["hp"], self.hp, "hp")), start=2):
+                                           (self.lbls["hp"], self.hp, "hp"),
+                                           (self.gate_on, self.gate_th, "gate"),
+                                           (self.lbls["gain"], self.gain, "gain")), start=2):
             g.addWidget(lbl, r, 0); g.addWidget(sl_, r, 1); g.addWidget(self.vals[k], r, 2)
-        for r, (lbl, sl_, k) in enumerate(((self.gate_on, self.gate_th, "gate"),
-                                           (self.lbls["gain"], self.gain, "gain")), start=1):
-            g.addWidget(lbl, r, 4); g.addWidget(sl_, r, 5); g.addWidget(self.vals[k], r, 6)
-        g.setColumnMinimumWidth(3, 16)
-        g.setColumnStretch(1, 1); g.setColumnStretch(5, 1)
-        root.addWidget(box)
+        g.setColumnStretch(1, 1)
+        g.setVerticalSpacing(4)
+        self._spec_lay.addWidget(box)
 
         # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
         self.contrib_cb, self.contrib_del = W.QCheckBox(), W.QPushButton()
@@ -208,6 +211,7 @@ class MainWindow(W.QMainWindow):
         pl = W.QVBoxLayout(page)
         self.gen_box, self.bg_box, self.ai_box = W.QGroupBox(), W.QGroupBox(), W.QGroupBox()
         gl = W.QHBoxLayout(self.gen_box)
+        self.lang_cb.setMinimumWidth(200)
         gl.addWidget(self.lang_lbl); gl.addWidget(self.lang_cb); gl.addStretch(1)
         bl = W.QVBoxLayout(self.bg_box)
         self.set_notes = {}
@@ -222,13 +226,12 @@ class MainWindow(W.QMainWindow):
         al.addWidget(self.contrib_cb)
         row = W.QHBoxLayout(); row.addWidget(self.contrib_del); row.addStretch(1)
         al.addLayout(row)
-        cols = W.QHBoxLayout()
-        left = W.QVBoxLayout(); left.addWidget(self.gen_box); left.addWidget(self.ai_box); left.addStretch(1)
-        cols.addLayout(left, 1); cols.addWidget(self.bg_box, 1, QtCore.Qt.AlignTop)
-        pl.addLayout(cols); pl.addStretch(1)
-        self.set_box = W.QScrollArea(); self.set_box.setWidgetResizable(True)
-        self.set_box.setFrameShape(W.QFrame.NoFrame)
-        self.set_box.setWidget(page)
+        # one column of equally wide boxes, in order of how often they are needed
+        for b in (self.gen_box, self.bg_box, self.ai_box):
+            b.setMaximumWidth(760)
+            pl.addWidget(b)
+        pl.addStretch(1)
+        self.set_box = page
         self.tabs.addTab(self.set_box, "")
         self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % self.tabs.count())
         self.tabs.currentChanged.connect(lambda _: self._save())
@@ -312,7 +315,7 @@ class MainWindow(W.QMainWindow):
         self.gen_box.setTitle(t("settings.general")); self.bg_box.setTitle(amp("settings.background"))
         self.ai_box.setTitle(amp("settings.ai"))
         self.tabs.setTabText(3, t("settings.title"))
-        self.tabs.setTabText(0, t("tab.analyzer")); self.tabs.setTabText(1, t("tab.eq"))
+        self.tabs.setTabText(0, t("tab.analyzer").replace("&", "&&")); self.tabs.setTabText(1, t("tab.eq"))
         self.tabs.setTabText(2, t("tab.dynamics").replace("&", "&&"))   # "&" is not a shortcut
         self.eq_panel.retranslate(self.lang)
         self.dyn_panel.retranslate(self.lang)

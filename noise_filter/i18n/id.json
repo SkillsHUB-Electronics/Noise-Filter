@@ -72,7 +72,7 @@
   "tray.state_on": "filter aktif",
   "tray.state_off": "filter mati",
   "tray.hidden": "Noise Filter masih berjalan di tray. Klik kanan ikonnya lalu pilih \"Keluar\" untuk keluar.",
-  "tab.analyzer": "Spektrum",
+  "tab.analyzer": "Filter & spektrum",
   "tab.eq": "Equalizer",
   "eq.enable": "EQ aktif",
   "eq.add": "+ Tambah band",

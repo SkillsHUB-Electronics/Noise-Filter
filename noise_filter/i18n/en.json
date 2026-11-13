@@ -72,7 +72,7 @@
   "tray.state_on": "filter on",
   "tray.state_off": "filter off",
   "tray.hidden": "Noise Filter is still running in the tray. Right-click the icon and choose \"Quit\" to exit.",
-  "tab.analyzer": "Spectrum",
+  "tab.analyzer": "Filter & spectrum",
   "tab.eq": "Equalizer",
   "eq.enable": "EQ on",
   "eq.add": "+ Add band",
