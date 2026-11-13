@@ -24,7 +24,8 @@ import numpy as np
 from . import __version__
 
 SR = 48_000
-SAMPLES_URL = os.environ.get("NF_SAMPLES_URL", "")   # set once the intake Worker is deployed; empty = feature off
+SAMPLES_URL = os.environ.get(
+    "NF_SAMPLES_URL", "https://noise-filter-samples.mukhamadkhoirul.workers.dev")   # empty = feature off
 CATEGORIES = ["fan_ac", "traffic", "keyboard", "crowd", "machine", "rain_wind", "other"]
 CONSENT = "cc0-v1"
 TRIM_START = 0.25       # seconds dropped at the start (button click, engine settling)
