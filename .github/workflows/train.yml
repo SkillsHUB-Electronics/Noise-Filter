@@ -2,8 +2,8 @@ name: Train AI model
 
 # Runs on a GitHub-hosted CPU runner (no GPU needed for this small model).
 # Start it from the Actions tab ("Run workflow"), or push a commit whose message contains [train].
-# It also runs every Sunday 01:00 UTC: when users contributed new noise samples since the shipped
-# model, it retrains with them and, if the new model passes the quality gate, publishes it to the
+# It also runs every Sunday 01:00 UTC: when the developer accepted new user noise samples (review
+# page, see screen-samples.yml) since the shipped model, it retrains with them and, if the new model passes the quality gate, publishes it to the
 # default branch, so every app picks it up with its next update check.
 # When the new model beats the spectral DSP baseline, the workflow commits it to
 # noise_filter/models/ on the same branch. Merging that branch ships the model to every app.

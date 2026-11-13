@@ -1,0 +1,38 @@
+name: Screen noise samples
+
+# Every day: re-check new user samples in R2 (voice, duplicates, clipping, silence, daily cap) and
+# move the ones that pass to review/, where the developer accepts or rejects them on the review
+# page (https://noise-filter-samples.mukhamadkhoirul.workers.dev/review). Only accepted samples
+# are used by "Train AI model".
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r2-samples
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Screen incoming/ into review/
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -z "$R2_ACCESS_KEY_ID" ]; then echo "::notice::R2 secrets not set; nothing to screen."; exit 0; fi
+          pip install -e .[ai] boto3
+          python -m training.contrib_samples --screen-only | tee report.json
+          { echo "### Noise samples"; echo '```json'; cat report.json; echo '```';
+            echo "Review them at https://noise-filter-samples.mukhamadkhoirul.workers.dev/review"; } >> $GITHUB_STEP_SUMMARY

@@ -1,7 +1,10 @@
 """Opt-in noise sample contributions (F3).
 
 After "Learn noise" the app has a few seconds of room noise. If the user agrees, that recording
-is sent to the sample intake service and, after screening, used to train the next AI model.
+is sent to the sample intake service and, after screening and the developer's review, used to
+train the next AI model. Users can also send noise from an audio file they recorded themselves
+(source "file"): it is converted to 48 kHz mono, cut into clips of at most 10 s and every clip
+goes through the same checks.
 
 Privacy rules enforced here (and again by CI before a sample can reach training):
   - a recording that contains anything that looks like a human voice is never offered;
@@ -31,6 +34,10 @@ CONSENT = "cc0-v1"
 TRIM_START = 0.25       # seconds dropped at the start (button click, engine settling)
 MIN_SECONDS = 2.0
 MAX_SECONDS = 10.0
+SOURCES = ["mic", "file"]
+MAX_FILE_CLIPS = 5          # the intake service accepts 5 uploads per installation per minute
+MAX_FILE_SECONDS = 600      # longer files are refused (decoding them would take too much memory)
+MAX_FILE_BYTES = 200 * 1024 * 1024
 
 
 def enabled() -> bool:
@@ -159,6 +166,112 @@ def prepare(raw: np.ndarray, dropped: int = 0) -> np.ndarray | None:
 
 
 # ---------------------------------------------------------------------------------------------
+# Audio files chosen by the user
+
+class AudioFileError(ValueError):
+    """The file cannot be used; str(e) is a short reason key: unsupported, too_long, too_short, empty."""
+
+
+def parse_wav(data: bytes) -> tuple[np.ndarray, int]:
+    """Decode a WAV file (PCM 8/16/24/32-bit, float 32/64, extensible) -> (mono float32, rate)."""
+    if len(data) < 12 or data[:4] not in (b"RIFF", b"RF64") or data[8:12] != b"WAVE":
+        raise AudioFileError("unsupported")
+    o, fmt = 12, None
+    while o + 8 <= len(data):
+        cid, size = data[o:o + 4], int.from_bytes(data[o + 4:o + 8], "little")
+        body = data[o + 8:o + 8 + size]
+        if cid == b"fmt " and len(body) >= 16:
+            tag, ch, rate = (int.from_bytes(body[0:2], "little"), int.from_bytes(body[2:4], "little"),
+                             int.from_bytes(body[4:8], "little"))
+            bits = int.from_bytes(body[14:16], "little")
+            if tag == 0xFFFE and len(body) >= 26:          # WAVE_FORMAT_EXTENSIBLE: real tag in the GUID
+                tag = int.from_bytes(body[24:26], "little")
+            fmt = (tag, ch, rate, bits)
+        elif cid == b"data" and fmt:
+            tag, ch, rate, bits = fmt
+            if ch < 1 or not 8000 <= rate <= 384000:
+                raise AudioFileError("unsupported")
+            if size == 0xFFFFFFFF or o + 8 + size > len(data):   # streamed / RF64: data runs to the end
+                body = data[o + 8:]
+            width = bits // 8
+            body = body[:len(body) // (width * ch) * width * ch]
+            if tag == 1 and bits == 8:
+                x = (np.frombuffer(body, np.uint8).astype(np.float32) - 128) / 128
+            elif tag == 1 and bits == 16:
+                x = np.frombuffer(body, "<i2").astype(np.float32) / 32768
+            elif tag == 1 and bits == 24:
+                b = np.frombuffer(body, np.uint8).reshape(-1, 3).astype(np.int32)
+                v = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+                x = (np.where(v >= 1 << 23, v - (1 << 24), v)).astype(np.float32) / (1 << 23)
+            elif tag == 1 and bits == 32:
+                x = (np.frombuffer(body, "<i4").astype(np.float64) / 2 ** 31).astype(np.float32)
+            elif tag == 3 and bits in (32, 64):
+                x = np.frombuffer(body, "<f4" if bits == 32 else "<f8").astype(np.float32)
+            else:
+                raise AudioFileError("unsupported")
+            return x.reshape(-1, ch).mean(1).astype(np.float32), rate
+        o += 8 + size + (size & 1)
+    raise AudioFileError("unsupported")
+
+
+def resample(x: np.ndarray, rate: int, target: int = SR) -> np.ndarray:
+    """Band-limited resampling by FFT (numpy only). Fine for clips of a few minutes."""
+    x = np.asarray(x, np.float32)
+    if rate == target or len(x) == 0:
+        return x
+    n = int(round(len(x) * target / rate))
+    X = np.fft.rfft(x.astype(np.float64))
+    m = n // 2 + 1
+    Y = np.zeros(m, complex)
+    k = min(m, len(X))
+    Y[:k] = X[:k]
+    return (np.fft.irfft(Y, n) * (n / len(x))).astype(np.float32)
+
+
+def load_audio_file(path: str | os.PathLike, decoder=None) -> np.ndarray:
+    """Read an audio file as 48 kHz mono float32. WAV is decoded here; other formats (MP3, M4A,
+    FLAC, OGG...) need `decoder(path) -> (mono float32, rate)`, which the UI provides."""
+    p = Path(path)
+    if p.stat().st_size > MAX_FILE_BYTES:
+        raise AudioFileError("too_long")
+    if p.suffix.lower() in (".wav", ".wave"):
+        x, rate = parse_wav(p.read_bytes())
+    elif decoder is not None:
+        x, rate = decoder(str(p))
+    else:
+        raise AudioFileError("unsupported")
+    if len(x) == 0:
+        raise AudioFileError("empty")
+    if len(x) > MAX_FILE_SECONDS * rate:
+        raise AudioFileError("too_long")
+    if len(x) < MIN_SECONDS * rate:
+        raise AudioFileError("too_short")
+    return resample(x, rate)
+
+
+def file_clips(x: np.ndarray, model_path: str | None = None,
+               max_clips: int = MAX_FILE_CLIPS) -> tuple[list[np.ndarray], dict]:
+    """Cut a file into up to `max_clips` clips of at most 10 s, spread evenly over the file, and
+    keep the ones that pass check_sample. Returns (clips, {reason: count} of the dropped ones)."""
+    x = np.asarray(x, np.float32)
+    n = int(MAX_SECONDS * SR)
+    if len(x) <= n:
+        starts = [0]
+    else:
+        count = min(max_clips, len(x) // n)
+        starts = np.linspace(0, len(x) - n, count).astype(int).tolist()
+    clips, dropped = [], {}
+    for s0 in starts:
+        c = x[s0:s0 + n]
+        ok, reason = check_sample(c, model_path)
+        if ok:
+            clips.append(c)
+        else:
+            dropped[reason] = dropped.get(reason, 0) + 1
+    return clips, dropped
+
+
+# ---------------------------------------------------------------------------------------------
 # Upload
 
 def encode_wav(x: np.ndarray) -> bytes:
@@ -202,15 +315,17 @@ def _os() -> str:
     return {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(platform.system(), "linux")
 
 
-def upload(x: np.ndarray, category: str, timeout: float = 20.0) -> str:
+def upload(x: np.ndarray, category: str, timeout: float = 20.0, source: str = "mic") -> str:
     """Send one approved sample. Returns the sample id; raises on any failure."""
     import urllib.request
     if not enabled():
         raise RuntimeError("sample upload is not configured")
     if category not in CATEGORIES:
         raise ValueError(f"unknown category {category}")
+    if source not in SOURCES:
+        raise ValueError(f"unknown source {source}")
     meta = {"install_id": install_id(), "category": category, "app_version": __version__,
-            "os": _os(), "consent": CONSENT}
+            "os": _os(), "consent": CONSENT, "source": source}
     req = urllib.request.Request(
         SAMPLES_URL.rstrip("/") + "/v1/samples", data=encode_wav(x), method="POST",
         headers={"Content-Type": "audio/wav", "X-NF-Meta": json.dumps(meta),
@@ -221,6 +336,20 @@ def upload(x: np.ndarray, category: str, timeout: float = 20.0) -> str:
         raise RuntimeError(res.get("error", "upload failed"))
     save_state(sent=int(load_state().get("sent", 0)) + 1)
     return res["id"]
+
+
+def upload_clips(clips: list[np.ndarray], category: str, timeout: float = 20.0) -> int:
+    """Send the clips of one audio file (source "file"). Returns how many were sent; raises if none."""
+    sent, error = 0, None
+    for c in clips:
+        try:
+            upload(c, category, timeout, source="file")
+            sent += 1
+        except Exception as e:      # keep going: one refused clip should not lose the others
+            error = e
+    if not sent and error is not None:
+        raise error
+    return sent
 
 
 def delete_my_samples(timeout: float = 20.0) -> int:

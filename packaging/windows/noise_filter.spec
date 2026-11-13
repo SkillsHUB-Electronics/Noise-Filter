@@ -14,7 +14,8 @@ a = Analysis(
            *[(str(f), "noise_filter/models") for f in (root / "noise_filter" / "models").glob("*.*")],
            (str(native / "nf-cli.exe"), "noise_filter/_native")],
     hiddenimports=["noise_filter.ui.app", "noise_filter.audio.engine", "noise_filter.audio.devices",
-                   "sounddevice", "_sounddevice_data", "noise_filter.model_update"],
+                   "sounddevice", "_sounddevice_data", "noise_filter.model_update",
+                   "noise_filter.ui.audio_file", "PySide6.QtMultimedia"],   # MP3/M4A decoding (noise files)
     excludes=["tkinter", "matplotlib", "scipy", "pytest", "PySide6.QtWebEngineCore",
               "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore", "PySide6.QtQuick", "PySide6.QtQml", "onnxruntime", "torch"],
     noarchive=False,

@@ -75,10 +75,11 @@ def test_screening_moves_samples(monkeypatch):
     s3.put(f"incoming/{B}/2026-11-13-c.wav", contribute.encode_wav(fan(2) + voice()))  # voice
     s3.put(f"incoming/{B}/2026-11-13-d.wav", b"RIFF junk")
     stats = cs.process_incoming(s3, None)
-    assert stats["accepted"] == 1 and stats["rejected:duplicate"] == 1 and stats["rejected:speech"] == 1
+    assert stats["to_review"] == 1 and stats["rejected:duplicate"] == 1 and stats["rejected:speech"] == 1
     assert not [k for k in s3.o if k.startswith("incoming/")]
-    acc = [k for k in s3.o if k.startswith("accepted/")]
-    assert acc == [f"accepted/{A}/2026-11-13-a.wav"]
+    assert not [k for k in s3.o if k.startswith("accepted/")]     # only the developer accepts
+    acc = [k for k in s3.o if k.startswith("review/")]
+    assert acc == [f"review/{A}/2026-11-13-a.wav"]
     assert s3.o[acc[0]][1]["category"] == "fan_ac" and len(s3.o[acc[0]][1]["sha256"]) == 64
     rej = {k: v[1]["reason"] for k, v in s3.o.items() if k.startswith("rejected/")}
     assert rej[f"rejected/{A}/2026-11-13-b.wav"] == "duplicate"
@@ -92,7 +93,35 @@ def test_daily_cap(monkeypatch):
     for i in range(4):
         s3.put(f"incoming/{A}/2026-11-13-{i}.wav", contribute.encode_wav(fan(10 + i)))
     stats = cs.process_incoming(s3, None)
-    assert stats == {"accepted": 2, "rejected:daily cap": 2}
+    assert stats == {"to_review": 2, "rejected:daily cap": 2}
+
+
+def test_duplicates_of_samples_waiting_for_review_are_rejected():
+    s3 = FakeS3()
+    good = contribute.encode_wav(fan(5))
+    s3.put(f"incoming/{A}/2026-11-13-a.wav", good)
+    cs.process_incoming(s3, None)
+    s3.put(f"incoming/{B}/2026-11-14-b.wav", good)
+    assert cs.process_incoming(s3, None) == {"rejected:duplicate": 1}
+
+
+def test_unreviewed_accepted_samples_go_back_to_review():
+    s3 = FakeS3()
+    s3.put(f"accepted/{A}/old.wav", b"x", {"reason": "ok"})
+    s3.put(f"accepted/{A}/ok.wav", b"x", {"reason": "ok", "reviewed": "accepted 2026-11-14T00:00:00Z"})
+    assert cs.requeue_unreviewed(s3) == 1
+    assert sorted(s3.o) == [f"accepted/{A}/ok.wav", f"review/{A}/old.wav"]
+
+
+def test_screen_only_fetches_nothing(monkeypatch, tmp_path):
+    s3 = FakeS3()
+    s3.put(f"incoming/{A}/2026-11-13-a.wav", contribute.encode_wav(fan(7)))
+    s3.put(f"accepted/{B}/x.wav", b"x", {"reviewed": "accepted 2026-11-14T00:00:00Z"})
+    monkeypatch.setattr(cs, "client", lambda: s3)
+    monkeypatch.chdir(tmp_path)
+    r = cs.main(["--screen-only", "--model", "none.onnx"])
+    assert r["screening"] == {"to_review": 1} and r["waiting_for_review"] == 1 and r["accepted_total"] == 1
+    assert not (tmp_path / "data").exists()
 
 
 def test_purge_and_selection():

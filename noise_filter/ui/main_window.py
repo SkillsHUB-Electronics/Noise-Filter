@@ -188,12 +188,15 @@ class MainWindow(W.QMainWindow):
         self._spec_lay.addWidget(box)
 
         # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
-        self.contrib_cb, self.contrib_del = W.QCheckBox(), W.QPushButton()
+        self.contrib_cb, self.contrib_del, self.contrib_file = W.QCheckBox(), W.QPushButton(), W.QPushButton()
+        self.contrib_file.clicked.connect(self._contribute_file)
         self.contrib_cb.setChecked(contribute.load_state().get("ask", True))
         self.contrib_cb.toggled.connect(lambda v: contribute.save_state(ask=v))
         self.contrib_del.clicked.connect(self._delete_samples)
         self._sample_signal = _SampleSignal()
         self._sample_signal.ready.connect(self._offer_sample)
+        self._file_signal = _SampleSignal()
+        self._file_signal.ready.connect(self._offer_file)
         self._uploader = UploadWorker()
         self._uploader.done.connect(self._upload_done)
         self._capturing = False
@@ -226,7 +229,7 @@ class MainWindow(W.QMainWindow):
         row = W.QHBoxLayout(); row.addWidget(self.train_btn); row.addStretch(1)
         al.addLayout(row)
         al.addWidget(self.contrib_cb)
-        row = W.QHBoxLayout(); row.addWidget(self.contrib_del); row.addStretch(1)
+        row = W.QHBoxLayout(); row.addWidget(self.contrib_file); row.addWidget(self.contrib_del); row.addStretch(1)
         al.addLayout(row)
         # one column of equally wide boxes, in order of how often they are needed
         for b in (self.gen_box, self.bg_box, self.ai_box):
@@ -349,8 +352,10 @@ class MainWindow(W.QMainWindow):
         self.gate_on.setText(t("label.gate"))
         self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("model.check"))
         self.contrib_cb.setText(t("contrib.offer")); self.contrib_del.setText(t("contrib.delete"))
+        self.contrib_file.setText(t("contrib.file"))
         on = contribute.enabled()
         self.contrib_cb.setVisible(on)
+        self.contrib_file.setVisible(on)
         self.contrib_del.setVisible(on and int(contribute.load_state().get("sent", 0)) > 0)
         self.hint.setText(t("hint.virtualmic"))
         if hasattr(self, "tray"):
@@ -526,6 +531,51 @@ class MainWindow(W.QMainWindow):
             self._uploader.run(contribute.upload, sample, dlg.category)
         elif dlg.never:
             self.contrib_cb.setChecked(False)
+
+    def _contribute_file(self):
+        """Let the user send noise from an audio file they recorded themselves."""
+        from .audio_file import FILTER, qt_decode
+        t = lambda k: tr(k, self.lang)
+        path, _ = W.QFileDialog.getOpenFileName(self, t("contrib.file"), "", f"{t('contrib.file_filter')} ({FILTER})")
+        if not path:
+            return
+        self.status.setText(t("contrib.file_checking"))
+        self.contrib_file.setEnabled(False)
+        W.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            x = contribute.load_audio_file(path, decoder=qt_decode)
+        except contribute.AudioFileError as e:
+            self._file_failed(t(f"contrib.file_err.{e}"))
+            return
+        except Exception as e:
+            self._file_failed(f"{t('contrib.file_err.unsupported')} ({e})")
+            return
+        finally:
+            W.QApplication.restoreOverrideCursor()
+        name = os.path.basename(path)
+        import threading    # screening runs the AI model on every clip: keep it off the UI thread
+        threading.Thread(target=lambda: self._file_signal.ready.emit((name, *contribute.file_clips(x))),
+                         daemon=True, name="screen-file").start()
+
+    def _file_failed(self, text):
+        self.contrib_file.setEnabled(True)
+        self.status.setText(text)
+        W.QMessageBox.information(self, tr("contrib.title", self.lang), text)
+
+    def _offer_file(self, result):
+        name, clips, dropped = result
+        t = lambda k: tr(k, self.lang)
+        if not clips:
+            reason = max(dropped, key=dropped.get) if dropped else "silent"
+            self._file_failed(t("contrib.file_none").format(reason=t(f"contrib.reason.{reason}")))
+            return
+        self.contrib_file.setEnabled(True)
+        self.status.setText("")
+        info = {"name": name, "clips": len(clips), "dropped": sum(dropped.values())}
+        dlg = ContributeDialog(np.concatenate(clips), self.lang, self, file=info)
+        if dlg.exec() == W.QDialog.Accepted and dlg.category:
+            self.status.setText(t("contrib.sending"))
+            self._uploader.run(contribute.upload_clips, clips, dlg.category)
 
     def _delete_samples(self):
         if W.QMessageBox.question(self, tr("contrib.title", self.lang),

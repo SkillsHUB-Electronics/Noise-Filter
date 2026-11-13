@@ -83,3 +83,11 @@ test("health and unknown routes", async () => {
   assert.equal((await worker.fetch(new Request("https://x/v1/health"), {})).status, 200);
   assert.equal((await worker.fetch(new Request("https://x/nope"), {})).status, 404);
 });
+
+test("source defaults to mic, accepts file and rejects anything else", async () => {
+  const env = { SAMPLES: new FakeBucket() };
+  assert.equal((await worker.fetch(post(wav(5)), env)).status, 201);
+  assert.equal((await worker.fetch(post(wav(5), { ...META, source: "file" }), env)).status, 201);
+  assert.equal((await worker.fetch(post(wav(5), { ...META, source: "youtube" }), env)).status, 400);
+  assert.deepEqual([...env.SAMPLES.objects.values()].map((v) => v.opts.customMetadata.source).sort(), ["file", "mic"]);
+});
