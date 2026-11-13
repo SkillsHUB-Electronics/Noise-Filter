@@ -6,7 +6,7 @@ from ..core import FRAME_SIZE, FRAME_MS, SAMPLE_RATE
 from ..core import native
 from .. import contribute, model_update
 from ..i18n import tr
-from . import settings
+from . import autostart, settings
 from .spectrum_plot import SpectrumPlot
 from .contribute_dialog import ContributeDialog, UploadWorker
 
@@ -30,6 +30,22 @@ class _SampleSignal(QtCore.QObject):
     ready = QtCore.Signal(object)          # screened 'Learn noise' recording (np.ndarray) or None
 
 
+def _with_dot(icon, QtGui):
+    """Tray icon while the filter runs: the logo with a green dot in the corner."""
+    out = QtGui.QIcon()
+    for s in (16, 20, 24, 32, 48, 64):
+        pix = icon.pixmap(s, s)
+        p = QtGui.QPainter(pix)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        r = max(5, s * 0.45)
+        p.setPen(QtGui.QPen(QtGui.QColor("white"), max(1.0, s / 16)))
+        p.setBrush(QtGui.QColor("#22c55e"))
+        p.drawEllipse(QtCore.QRectF(s - r - 0.5, s - r - 0.5, r, r))
+        p.end()
+        out.addPixmap(pix)
+    return out
+
+
 class MainWindow(W.QMainWindow):
     def __init__(self, demo: bool = False):
         super().__init__()
@@ -48,9 +64,19 @@ class MainWindow(W.QMainWindow):
         self.demo = demo
         self._demo_t = 0
         self._rng = np.random.default_rng(1)
+        self._quitting = False
+        self._shut_down = False
         self._build()
+        self._build_tray()
         self.retranslate()
         self.refresh_devices()
+        geo = self.data.get("geometry")
+        if not (geo and self.restoreGeometry(QtCore.QByteArray.fromBase64(geo.encode("ascii")))):
+            self.resize(1100, 720)
+        app = W.QApplication.instance()
+        app.aboutToQuit.connect(self._shutdown)
+        app.commitDataRequest.connect(lambda _: setattr(self, "_quitting", True))   # Windows sign-out / shutdown
+        autostart.refresh()
         self._model_signal = _ModelSignal()
         self._model_signal.done.connect(self._model_update_done)
         if not demo and os.environ.get("NF_NO_UPDATE_CHECK") != "1":
@@ -63,30 +89,38 @@ class MainWindow(W.QMainWindow):
             self.demo_timer.timeout.connect(self._demo_frame)
             self.start_btn.setEnabled(False)
             self.demo_timer.start()
+        elif self.data.get("running") and self.resume_cb.isChecked():
+            QtCore.QTimer.singleShot(300, lambda: self.start_btn.setChecked(True))   # it was on last time
 
     # ---------- UI construction ----------
     def _build(self):
         c = W.QWidget(); self.setCentralWidget(c)
         root = W.QVBoxLayout(c)
 
-        # devices row
-        row = W.QHBoxLayout()
+        # devices: label | combo | extra, two rows; the big Start button on the right
+        self.dev_box = W.QGroupBox()
+        d = W.QGridLayout(self.dev_box)
         self.in_lbl, self.out_lbl = W.QLabel(), W.QLabel()
         self.in_cb, self.out_cb = W.QComboBox(), W.QComboBox()
-        self.in_cb.setMinimumWidth(240); self.out_cb.setMinimumWidth(240)
+        for cb in (self.in_cb, self.out_cb):     # long device names must not widen the window
+            cb.setSizeAdjustPolicy(W.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(18)
+            cb.setSizePolicy(W.QSizePolicy.Expanding, W.QSizePolicy.Fixed)
         self.refresh_btn = W.QPushButton()
+        self.excl = W.QCheckBox(); self.excl.setChecked(bool(self.data.get("exclusive", False)))
+        self.excl.toggled.connect(lambda _: self._save())
         self.start_btn = W.QPushButton(); self.start_btn.setCheckable(True)
-        self.excl = W.QCheckBox()
-        self.lang_cb = W.QComboBox()
-        for code, name in LANGS: self.lang_cb.addItem(name, code)
-        self.lang_cb.setCurrentIndex([c_ for c_, _ in LANGS].index(self.lang))
-        for w in (self.in_lbl, self.in_cb, self.out_lbl, self.out_cb, self.refresh_btn, self.excl):
-            row.addWidget(w)
-        row.addStretch(1); row.addWidget(self.lang_cb); row.addWidget(self.start_btn)
-        root.addLayout(row)
+        self.start_btn.setMinimumWidth(130)
+        self.start_btn.setSizePolicy(W.QSizePolicy.Preferred, W.QSizePolicy.Expanding)
+        f = self.start_btn.font(); f.setBold(True); f.setPointSizeF(f.pointSizeF() * 1.2)
+        self.start_btn.setFont(f)
+        d.addWidget(self.in_lbl, 0, 0); d.addWidget(self.in_cb, 0, 1); d.addWidget(self.refresh_btn, 0, 2)
+        d.addWidget(self.out_lbl, 1, 0); d.addWidget(self.out_cb, 1, 1); d.addWidget(self.excl, 1, 2)
+        d.addWidget(self.start_btn, 0, 3, 2, 1)
+        d.setColumnStretch(1, 1)
+        root.addWidget(self.dev_box)
         self.refresh_btn.clicked.connect(self.refresh_devices)
         self.start_btn.toggled.connect(self.toggle_engine)
-        self.lang_cb.currentIndexChanged.connect(self._lang_changed)
 
         # analyzers
         plots = W.QHBoxLayout()
@@ -94,50 +128,90 @@ class MainWindow(W.QMainWindow):
         self.in_plot = SpectrumPlot("", "#e0a030", freqs)
         self.out_plot = SpectrumPlot("", "#30b070", freqs)
         for p, bar_name in ((self.in_plot, "in_bar"), (self.out_plot, "out_bar")):
+            p.setMinimumHeight(160)
             col = W.QVBoxLayout(); col.addWidget(p, 1)
             bar = level_bar(); setattr(self, bar_name, bar); col.addWidget(bar)
             plots.addLayout(col)
         root.addLayout(plots, 1)
 
-        # controls
+        bottom = W.QHBoxLayout()
+        root.addLayout(bottom)
+
+        # filter controls: label | slider | value, one row each
         box = W.QGroupBox(); self.ctrl_box = box
         g = W.QGridLayout(box)
         cfg = self.pipe.cfg
         self.bypass = W.QCheckBox(); self.bypass.setChecked(cfg.bypass)
         self.mode_cb = W.QComboBox()
+        self.mode_cb.setSizeAdjustPolicy(W.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.mode_cb.setMinimumContentsLength(16)
         self.strength = self._slider(0, 200, int(cfg.strength * 100))
         self.hp = self._slider(0, 300, int(cfg.highpass_hz))
-        self.gate_on = W.QCheckBox(); self.gate_on.setChecked(cfg.gate_enabled)
+        self.gate_on = W.QCheckBox(); self.gate_on.setChecked(cfg.gate_enabled)   # doubles as the row label
         self.gate_th = self._slider(-90, -20, int(cfg.gate_threshold_db))
         self.gain = self._slider(-20, 20, int(cfg.output_gain_db))
-        self.lbls = {k: W.QLabel() for k in ("mode", "strength", "hp", "gate", "gain")}
+        self.lbls = {k: W.QLabel() for k in ("mode", "strength", "hp", "gain")}
         self.vals = {k: W.QLabel() for k in ("strength", "hp", "gate", "gain")}
-        g.addWidget(self.bypass, 0, 0, 1, 2)
+        val_w = self.fontMetrics().horizontalAdvance("-100 dB") + 8
+        for v in self.vals.values():
+            v.setMinimumWidth(val_w); v.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        g.addWidget(self.bypass, 0, 0, 1, 3)
         g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
-        for r, (k, s) in enumerate((("strength", self.strength), ("hp", self.hp),
-                                    ("gate", self.gate_th), ("gain", self.gain)), start=2):
-            g.addWidget(self.lbls[k], r, 0); g.addWidget(s, r, 1); g.addWidget(self.vals[k], r, 2)
-        g.addWidget(self.gate_on, 4, 3)
+        for r, (lbl, s, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
+                                         (self.lbls["hp"], self.hp, "hp"),
+                                         (self.gate_on, self.gate_th, "gate"),
+                                         (self.lbls["gain"], self.gain, "gain")), start=2):
+            g.addWidget(lbl, r, 0); g.addWidget(s, r, 1); g.addWidget(self.vals[k], r, 2)
+        g.setColumnStretch(1, 1)
+        bottom.addWidget(box, 3)
+
+        # tools: learn noise, model update, noise-sample sharing
+        self.tools_box = W.QGroupBox()
+        tl = W.QVBoxLayout(self.tools_box)
         self.learn_btn, self.train_btn = W.QPushButton(), W.QPushButton()
         self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
-        g.addWidget(self.learn_btn, 0, 3); g.addWidget(self.train_btn, 1, 3)
         # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
         self.contrib_cb, self.contrib_del = W.QCheckBox(), W.QPushButton()
         self.contrib_cb.setChecked(contribute.load_state().get("ask", True))
         self.contrib_cb.toggled.connect(lambda v: contribute.save_state(ask=v))
         self.contrib_del.clicked.connect(self._delete_samples)
-        g.addWidget(self.contrib_cb, 2, 3); g.addWidget(self.contrib_del, 3, 3)
+        for w in (self.learn_btn, self.train_btn, self.contrib_cb, self.contrib_del):
+            tl.addWidget(w)
+        tl.addStretch(1)
+        bottom.addWidget(self.tools_box, 2)
         self._sample_signal = _SampleSignal()
         self._sample_signal.ready.connect(self._offer_sample)
         self._uploader = UploadWorker()
         self._uploader.done.connect(self._upload_done)
         self._capturing = False
-        g.setColumnStretch(1, 1)
-        root.addWidget(box)
+
+        # app settings: language, tray, Windows startup, resume
+        self.set_box = W.QGroupBox()
+        sl = W.QGridLayout(self.set_box)
+        self.lang_lbl = W.QLabel()
+        self.lang_cb = W.QComboBox()
+        for code, name in LANGS: self.lang_cb.addItem(name, code)
+        self.lang_cb.setCurrentIndex([c_ for c_, _ in LANGS].index(self.lang))
+        self.lang_cb.currentIndexChanged.connect(self._lang_changed)
+        self.tray_cb = W.QCheckBox(); self.tray_cb.setChecked(bool(self.data.get("close_to_tray", True)))
+        self.tray_cb.setEnabled(W.QSystemTrayIcon.isSystemTrayAvailable())
+        self.autostart_cb = W.QCheckBox(); self.autostart_cb.setChecked(autostart.is_enabled())
+        self.autostart_cb.setEnabled(autostart.supported())
+        self.resume_cb = W.QCheckBox(); self.resume_cb.setChecked(bool(self.data.get("resume", True)))
+        sl.addWidget(self.lang_lbl, 0, 0); sl.addWidget(self.lang_cb, 0, 1)
+        for r, w in enumerate((self.tray_cb, self.autostart_cb, self.resume_cb), start=1):
+            sl.addWidget(w, r, 0, 1, 2)
+        sl.setRowStretch(4, 1); sl.setColumnStretch(1, 1)
+        bottom.addWidget(self.set_box, 2)
+        self.tray_cb.toggled.connect(lambda _: self._save())
+        self.resume_cb.toggled.connect(lambda _: self._save())
+        self.autostart_cb.toggled.connect(self._autostart_changed)
 
         self.hint = W.QLabel(); self.hint.setWordWrap(True)
-        self.status = W.QLabel()
-        root.addWidget(self.hint); root.addWidget(self.status)
+        root.addWidget(self.hint)
+        self.status = W.QLabel()   # long stats must never force the window wider
+        self.status.setSizePolicy(W.QSizePolicy.Ignored, W.QSizePolicy.Preferred)
+        self.statusBar().addWidget(self.status, 1)
 
         self.bypass.toggled.connect(lambda v: self._set(bypass=v))
         self.mode_cb.currentIndexChanged.connect(lambda _: self._mode_changed(self.mode_cb.currentData()))
@@ -149,6 +223,54 @@ class MainWindow(W.QMainWindow):
         self.learn_btn.clicked.connect(self.learn_noise)
         self._update_value_labels()
 
+    def _build_tray(self):
+        from .app import app_icon
+        from PySide6 import QtGui
+        self._icon = app_icon(QtGui)
+        self._icon_on = _with_dot(self._icon, QtGui)
+        self.tray = W.QSystemTrayIcon(self._icon, self)
+        m = W.QMenu(self)
+        self.act_show = m.addAction("", self.toggle_window)
+        self.act_run = m.addAction(""); self.act_run.setCheckable(True)
+        self.act_run.toggled.connect(self.start_btn.setChecked)
+        m.addSeparator()
+        self.act_quit = m.addAction("", self.quit_app)
+        m.aboutToShow.connect(self._update_tray)
+        self.tray.setContextMenu(m)
+        self.tray.activated.connect(
+            lambda r: self.toggle_window() if r in (W.QSystemTrayIcon.Trigger, W.QSystemTrayIcon.DoubleClick) else None)
+        if W.QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray.show()
+
+    def _update_tray(self):
+        t = lambda k: tr(k, self.lang)
+        on = self.engine is not None
+        self.act_show.setText(t("tray.hide") if self.isVisible() else t("tray.show"))
+        self.act_run.blockSignals(True); self.act_run.setChecked(on); self.act_run.blockSignals(False)
+        self.act_run.setText(t("tray.filter")); self.act_quit.setText(t("tray.quit"))
+        self.tray.setIcon(self._icon_on if on else self._icon)
+        self.tray.setToolTip(f"{t('app.title')}: {t('tray.state_on' if on else 'tray.state_off')}")
+
+    def toggle_window(self):
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.show_window()
+
+    def show_window(self):
+        self.showNormal(); self.raise_(); self.activateWindow()
+
+    def quit_app(self):
+        self._quitting = True
+        self.close()
+
+    def _autostart_changed(self, on: bool):
+        try:
+            autostart.set_enabled(on)
+        except OSError as e:
+            self.autostart_cb.blockSignals(True); self.autostart_cb.setChecked(not on); self.autostart_cb.blockSignals(False)
+            self.status.setText(f"{tr('settings.autostart_failed', self.lang)}: {e}")
+
     @staticmethod
     def _slider(lo, hi, val):
         s = W.QSlider(QtCore.Qt.Horizontal); s.setRange(lo, hi); s.setValue(val); return s
@@ -156,6 +278,14 @@ class MainWindow(W.QMainWindow):
     def retranslate(self):
         t = lambda k: tr(k, self.lang)
         self.setWindowTitle(t("app.title"))
+        self.dev_box.setTitle(t("device.title"))
+        self.tools_box.setTitle(t("tools.title"))
+        self.set_box.setTitle(t("settings.title"))
+        self.lang_lbl.setText(t("settings.lang"))
+        self.tray_cb.setText(t("settings.tray")); self.tray_cb.setToolTip(t("settings.tray_tip"))
+        self.autostart_cb.setText(t("settings.autostart"))
+        self.autostart_cb.setToolTip(t("settings.autostart_tip") if autostart.supported() else t("settings.autostart_na"))
+        self.resume_cb.setText(t("settings.resume")); self.resume_cb.setToolTip(t("settings.resume_tip"))
         self.in_lbl.setText(t("device.input")); self.out_lbl.setText(t("device.output"))
         self.refresh_btn.setText(t("device.refresh"))
         self.excl.setText(t("device.exclusive"))
@@ -174,13 +304,15 @@ class MainWindow(W.QMainWindow):
         self.mode_cb.setCurrentIndex(["off", "spectral", "onnx"].index(cur))
         self.mode_cb.blockSignals(False)
         for k in self.lbls: self.lbls[k].setText(t(f"label.{k}"))
-        self.gate_on.setText(t("label.gate_on"))
+        self.gate_on.setText(t("label.gate"))
         self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("model.check"))
         self.contrib_cb.setText(t("contrib.offer")); self.contrib_del.setText(t("contrib.delete"))
         on = contribute.enabled()
         self.contrib_cb.setVisible(on)
         self.contrib_del.setVisible(on and int(contribute.load_state().get("sent", 0)) > 0)
         self.hint.setText(t("hint.virtualmic"))
+        if hasattr(self, "tray"):
+            self._update_tray()
 
     # ---------- behaviour ----------
     def _set(self, **kw):
@@ -244,6 +376,10 @@ class MainWindow(W.QMainWindow):
         self.data["lang"] = self.lang
         self.data["in_dev"] = self.in_cb.currentData()
         self.data["out_dev"] = self.out_cb.currentData()
+        self.data["exclusive"] = self.excl.isChecked()
+        self.data["close_to_tray"] = self.tray_cb.isChecked()
+        self.data["resume"] = self.resume_cb.isChecked()
+        self.data["geometry"] = bytes(self.saveGeometry().toBase64()).decode("ascii")
         try: settings.save(self.data)
         except OSError: pass
 
@@ -293,12 +429,19 @@ class MainWindow(W.QMainWindow):
                 self.engine.start()
             except Exception as e:
                 self.start_btn.blockSignals(True); self.start_btn.setChecked(False); self.start_btn.blockSignals(False)
+                self.engine = None
                 self.status.setText(f"{t('engine.error')}: {e}")
-                on = False
+                if not self.isVisible() and self.tray.isVisible():   # started hidden at sign-in
+                    self.tray.showMessage(t("app.title"), f"{t('engine.error')}: {e}", W.QSystemTrayIcon.Warning)
+                on = None   # failed: keep the remembered on/off state (e.g. USB mic not plugged in yet)
         else:
             if self.engine: self.engine.stop(); self.engine = None
+        if on is not None:
+            self.data["running"] = on
+        on = bool(on)
         for w in (self.in_cb, self.out_cb, self.refresh_btn, self.excl): w.setEnabled(not on)
         self.start_btn.setText(t("engine.stop") if on else t("engine.start"))
+        self._update_tray()
         self._save()
 
     def learn_noise(self):
@@ -373,5 +516,24 @@ class MainWindow(W.QMainWindow):
             self.status.setText(f"{backend}   DEMO signal   DSP cost: {getattr(self, '_cost', 0):.2f} ms / {FRAME_MS:.0f} ms frame")
 
     def closeEvent(self, e):
-        if self.engine: self.engine.stop()
-        self._save(); super().closeEvent(e)
+        if not self._quitting and self.tray_cb.isChecked() and self.tray.isVisible():
+            e.ignore()                      # keep filtering in the background
+            self.hide()
+            self._save()
+            if not self.data.get("tray_hint_shown"):
+                self.tray.showMessage(tr("app.title", self.lang), tr("tray.hidden", self.lang), self._icon, 6000)
+                self.data["tray_hint_shown"] = True
+                self._save()
+            return
+        self._shutdown()
+        super().closeEvent(e)
+        W.QApplication.instance().quit()
+
+    def _shutdown(self):
+        """Stop audio and save once; the remembered on/off state stays as it was."""
+        if self._shut_down:
+            return
+        self._shut_down = True
+        self._save()
+        if self.engine: self.engine.stop(); self.engine = None
+        self.tray.hide()

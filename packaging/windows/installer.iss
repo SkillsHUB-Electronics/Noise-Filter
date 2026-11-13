@@ -23,6 +23,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 WizardStyle=modern
 UninstallDisplayIcon={app}\NoiseFilter.exe
+CloseApplications=force
 SetupIconFile={#Root}\noise_filter\assets\icon.ico
 InfoBeforeFile={#Root}\packaging\windows\VB-CABLE-NOTICE.txt
 
@@ -47,6 +48,11 @@ Source: "{#Root}\build\vbcable\*"; DestDir: "{tmp}\vbcable"; Flags: ignoreversio
 Name: "{group}\Noise Filter"; Filename: "{app}\NoiseFilter.exe"
 Name: "{group}\{cm:UninstallProgram,Noise Filter}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Noise Filter"; Filename: "{app}\NoiseFilter.exe"; Tasks: desktopicon
+
+[Registry]
+; The app writes this value itself ("Start with Windows" setting); remove it on uninstall.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "NoiseFilter"; \
+  ValueType: none; Flags: uninsdeletevalue dontcreatekey
 
 [Run]
 Filename: "{tmp}\vbcable\VBCABLE_Setup_x64.exe"; Parameters: "-i -h"; StatusMsg: "{cm:CableInstalling}"; \
