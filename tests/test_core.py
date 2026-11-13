@@ -56,7 +56,7 @@ def test_learned_profile_beats_adaptive():
 
 def test_latency_budget_one_frame():
     # impulse must come out within 1 frame (10 ms) + highpass delay (<1 sample)
-    p = Pipeline(PipelineConfig(denoise="spectral", gate_enabled=False, highpass_hz=0))
+    p = Pipeline(PipelineConfig(denoise="spectral", gate_enabled=False, highpass_hz=0, limiter_enabled=False))
     p.spectral.strength = 0.0  # unity gain path
     p.spectral.floor = 1.0
     x = np.zeros(FRAME_SIZE * 6, np.float32); x[FRAME_SIZE * 2 + 10] = 1.0

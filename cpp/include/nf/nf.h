@@ -26,7 +26,7 @@ extern "C" {
 #define NF_API __attribute__((visibility("default")))
 #endif
 
-#define NF_API_VERSION 2 /* 2: parametric EQ */
+#define NF_API_VERSION 2 /* 2: parametric EQ, compressor, limiter */
 
 enum { NF_DENOISE_OFF = 0, NF_DENOISE_SPECTRAL = 1, NF_DENOISE_ONNX = 2 };
 enum { NF_INPUT = 0, NF_OUTPUT = 1 };
@@ -39,6 +39,15 @@ typedef struct nf_config {
   int gate_enabled;
   float gate_threshold_db;
   float output_gain_db;
+  /* v2: dynamics, after the gate (compressor) and after the output gain (limiter) */
+  int comp_enabled;
+  float comp_threshold_db; /* -60..0 */
+  float comp_ratio;        /* 1..20 */
+  float comp_attack_ms;
+  float comp_release_ms;
+  float comp_makeup_db;
+  int limiter_enabled;
+  float limiter_ceiling_db; /* e.g. -1: output never exceeds it, no look-ahead delay */
 } nf_config;
 
 /* Parametric EQ band (applied after the denoiser). */
@@ -100,6 +109,9 @@ NF_API void nf_pipeline_set_profile(nf_pipeline* p, const float* profile);
    has gaps and should be discarded. The audio thread never blocks on this. */
 NF_API void nf_pipeline_capture_start(nf_pipeline* p, int max_samples);
 NF_API int nf_pipeline_capture_stop(nf_pipeline* p, float* out, int max, int* dropped);
+
+/* Current gain reduction in dB (>= 0) of the compressor and the limiter, for meters. */
+NF_API void nf_pipeline_get_dynamics(nf_pipeline* p, float* comp_gr_db, float* limiter_gr_db);
 
 /* Analyzer (UI thread). which = NF_INPUT or NF_OUTPUT. */
 NF_API void nf_pipeline_spectrum_db(nf_pipeline* p, int which, float* db_out /* nf_analyzer_bins() */);

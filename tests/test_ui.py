@@ -285,3 +285,31 @@ def test_eq_tab_edits_reach_pipeline_and_persist(tmp_path, monkeypatch):
     assert w2.eq_panel.preset_cb.findData("user:Mine") < 0 and w2.data["eq_presets"] == {}
     w2.tabs.setCurrentIndex(1); w2._demo_frame(); w2._tick()   # spectrum feeds the EQ graph
     w2.close()
+
+
+def test_dynamics_tab(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    monkeypatch.setattr(W.QApplication, "quit", staticmethod(lambda: None))
+    from noise_filter.ui.main_window import MainWindow
+    w = MainWindow(demo=True)
+    d = w.dyn_panel
+    assert not w.pipe.cfg.comp_enabled and w.pipe.cfg.limiter_enabled
+    assert not d.sliders["comp_ratio"].isEnabled()
+    d.comp_on.setChecked(True)
+    d.sliders["comp_ratio"].setValue(80); d.sliders["comp_threshold_db"].setValue(-40)
+    d.sliders["limiter_ceiling_db"].setValue(-6)          # slider is in half dB
+    c = w.pipe.cfg
+    assert c.comp_enabled and c.comp_ratio == 8.0 and c.comp_threshold_db == -40 and c.limiter_ceiling_db == -3.0
+    assert d.vals["comp_ratio"].text() == "8.0 : 1" and d.sliders["comp_ratio"].isEnabled()
+    w.tabs.setCurrentIndex(2)
+    for _ in range(30):
+        w._demo_frame()
+    w._tick()
+    assert d.comp_gr.value() > 0
+    assert "&&" in w.tabs.tabText(2)
+    w.close()
+    w2 = MainWindow(demo=True)
+    assert w2.pipe.cfg.comp_ratio == 8.0 and w2.dyn_panel.sliders["comp_ratio"].value() == 80 and w2.tabs.currentIndex() == 2
+    w2.close()

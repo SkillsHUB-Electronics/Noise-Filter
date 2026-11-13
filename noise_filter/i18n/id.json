@@ -106,5 +106,20 @@
   "eq.preset.telephone": "Suara telepon",
   "eq.preset.podcast": "Podcast",
   "eq.preset.reduce_boom": "Kurangi bass berlebih",
-  "eq.preset.reduce_hiss": "Kurangi desis"
+  "eq.preset.reduce_hiss": "Kurangi desis",
+  "tab.dynamics": "Kompresor & limiter",
+  "dyn.comp": "Kompresor",
+  "dyn.limiter": "Limiter",
+  "dyn.comp_on": "Kompresor aktif",
+  "dyn.limiter_on": "Limiter aktif (mencegah pecah)",
+  "dyn.comp_tip": "Meratakan suara keras dan pelan: level di atas ambang dikurangi sesuai rasio, lalu gain makeup menaikkan semuanya kembali.",
+  "dyn.limiter_tip": "Output tidak pernah melewati batas atas, jadi suara keras tidak pecah. Tanpa tambahan delay.",
+  "dyn.comp_threshold_db": "Ambang",
+  "dyn.comp_ratio": "Rasio",
+  "dyn.comp_attack_ms": "Attack",
+  "dyn.comp_release_ms": "Release",
+  "dyn.comp_makeup_db": "Gain makeup",
+  "dyn.limiter_ceiling_db": "Batas atas",
+  "dyn.comp_gr": "Pengurangan kompresor",
+  "dyn.limiter_gr": "Pengurangan limiter"
 }

@@ -3,6 +3,7 @@ import numpy as np
 from .constants import FRAME_SIZE
 from .biquad import HighPass
 from .eq import Equalizer
+from .dynamics import Compressor, Limiter
 from .gate import NoiseGate
 from .spectral import SpectralDenoiser
 from .analyzer import SpectrumAnalyzer
@@ -20,12 +21,20 @@ class PipelineConfig:
     output_gain_db: float = 0.0
     eq_enabled: bool = False
     eq_bands: list = field(default_factory=list)   # dicts, see core.eq
+    comp_enabled: bool = False
+    comp_threshold_db: float = -24.0
+    comp_ratio: float = 3.0
+    comp_attack_ms: float = 10.0
+    comp_release_ms: float = 150.0
+    comp_makeup_db: float = 0.0
+    limiter_enabled: bool = True
+    limiter_ceiling_db: float = -1.0
 
     def to_dict(self): return asdict(self)
 
 
 class Pipeline:
-    """mic frame -> highpass -> denoise -> EQ -> gate -> gain, with in/out analyzers."""
+    """mic frame -> highpass -> denoise -> EQ -> gate -> compressor -> gain -> limiter, with in/out analyzers."""
 
     def __init__(self, cfg: PipelineConfig | None = None):
         self.cfg = cfg or PipelineConfig()
@@ -51,6 +60,9 @@ class Pipeline:
         self.gate = NoiseGate(cfg.gate_threshold_db)
         self.spectral = SpectralDenoiser(strength=cfg.strength)
         self.eq = Equalizer(cfg.eq_enabled, cfg.eq_bands)
+        self.comp = Compressor(cfg.comp_threshold_db, cfg.comp_ratio, cfg.comp_attack_ms,
+                               cfg.comp_release_ms, cfg.comp_makeup_db)
+        self.limiter = Limiter(cfg.limiter_ceiling_db)
         self.onnx = None
         if cfg.denoise == "onnx" and cfg.onnx_model:
             from .denoiser_onnx import OnnxDenoiser
@@ -67,11 +79,21 @@ class Pipeline:
             self.spectral.strength = self.cfg.strength
         if "eq_enabled" in changes or "eq_bands" in changes:
             self.eq.set(self.cfg.eq_enabled, self.cfg.eq_bands)
+        if any(k.startswith("comp_") and k != "comp_enabled" for k in changes):
+            c = self.cfg
+            self.comp.set(c.comp_threshold_db, c.comp_ratio, c.comp_attack_ms, c.comp_release_ms, c.comp_makeup_db)
+        if "limiter_ceiling_db" in changes:
+            self.limiter.set(self.cfg.limiter_ceiling_db)
         if "gate_threshold_db" in changes:
             self.gate.threshold = 10 ** (self.cfg.gate_threshold_db / 20)
         if "onnx_model" in changes and self.cfg.onnx_model:
             from .denoiser_onnx import OnnxDenoiser
             self.onnx = OnnxDenoiser(self.cfg.onnx_model)
+
+    def dynamics_gr_db(self) -> tuple[float, float]:
+        """(compressor, limiter) gain reduction in dB, for the meters."""
+        return (self.comp.gr_db if self.cfg.comp_enabled else 0.0,
+                self.limiter.gr_db if self.cfg.limiter_enabled else 0.0)
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         assert frame.shape == (FRAME_SIZE,), f"expected {FRAME_SIZE} samples"
@@ -92,7 +114,11 @@ class Pipeline:
             x = self.eq.process(x)   # after denoising, so boosted bands do not lift the noise first
             if self.cfg.gate_enabled:
                 x = self.gate.process(x)
+            if self.cfg.comp_enabled:
+                x = self.comp.process(x)
             out = x * np.float32(10 ** (self.cfg.output_gain_db / 20))
+            if self.cfg.limiter_enabled:
+                out = self.limiter.process(out)
         out = np.clip(out, -1.0, 1.0).astype(np.float32)
         self.out_analyzer.push(out)
         return out

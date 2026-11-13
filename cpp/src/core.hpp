@@ -73,6 +73,31 @@ class Equalizer {
   double z_[kEqMaxBands * kEqMaxSectionsPerBand][2] = {};
 };
 
+// Compressor (soft knee, log-domain gain smoothing) and zero-latency peak limiter.
+// Port of noise_filter/core/dynamics.py.
+class Compressor {
+ public:
+  Compressor() { set(-24.0, 3.0, 10.0, 150.0, 0.0); }
+  void set(double threshold_db, double ratio, double attack_ms, double release_ms, double makeup_db);
+  void process(const float* x, float* y, int n);
+  double gr_db() const { return -gs_; }
+  static double static_curve_db(double x_db, double threshold_db, double ratio);
+
+ private:
+  double threshold_ = -24.0, ratio_ = 3.0, makeup_ = 0.0, aa_ = 0.0, ar_ = 0.0, gs_ = 0.0;
+};
+
+class Limiter {
+ public:
+  Limiter();
+  void set(double ceiling_db);
+  void process(const float* x, float* y, int n);
+  double gr_db() const;
+
+ private:
+  double ceiling_ = 1.0, ar_ = 0.0, g_ = 1.0;
+};
+
 class NoiseGate {
  public:
   explicit NoiseGate(double threshold_db = -55.0, double attack = 0.5,
@@ -149,6 +174,14 @@ struct Config {
   bool gate_enabled = true;
   float gate_threshold_db = -55.0f;
   float output_gain_db = 0.0f;
+  bool comp_enabled = false;
+  float comp_threshold_db = -24.0f;
+  float comp_ratio = 3.0f;
+  float comp_attack_ms = 10.0f;
+  float comp_release_ms = 150.0f;
+  float comp_makeup_db = 0.0f;
+  bool limiter_enabled = true;
+  float limiter_ceiling_db = -1.0f;
 };
 
 struct EqConfig {
@@ -157,7 +190,7 @@ struct EqConfig {
   EqBand bands[kEqMaxBands];
 };
 
-// mic frame -> highpass -> denoise -> EQ -> gate -> gain (single-threaded).
+// mic frame -> highpass -> denoise -> EQ -> gate -> compressor -> gain -> limiter (single-threaded).
 class Pipeline {
  public:
   explicit Pipeline(const Config& cfg = Config());
@@ -174,6 +207,8 @@ class Pipeline {
   void process(const float* in, float* out);  // in may equal out
 
   SpectralDenoiser& spectral() { return spectral_; }
+  double comp_gr_db() const { return cfg_.comp_enabled ? comp_.gr_db() : 0.0; }
+  double limiter_gr_db() const { return cfg_.limiter_enabled ? limiter_.gr_db() : 0.0; }
   SpectrumAnalyzer in_analyzer, out_analyzer;
 
  private:
@@ -181,6 +216,8 @@ class Pipeline {
   HighPass hp_;
   NoiseGate gate_;
   Equalizer eq_;
+  Compressor comp_;
+  Limiter limiter_;
   SpectralDenoiser spectral_;
   std::unique_ptr<OnnxDenoiser> onnx_;
   std::vector<float> a_, b_;

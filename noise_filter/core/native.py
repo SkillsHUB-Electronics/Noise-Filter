@@ -29,7 +29,9 @@ API_VERSION = 2
 class _Config(C.Structure):
     _fields_ = [("bypass", C.c_int), ("highpass_hz", C.c_float), ("denoise", C.c_int),
                 ("strength", C.c_float), ("gate_enabled", C.c_int), ("gate_threshold_db", C.c_float),
-                ("output_gain_db", C.c_float)]
+                ("output_gain_db", C.c_float), ("comp_enabled", C.c_int), ("comp_threshold_db", C.c_float),
+                ("comp_ratio", C.c_float), ("comp_attack_ms", C.c_float), ("comp_release_ms", C.c_float),
+                ("comp_makeup_db", C.c_float), ("limiter_enabled", C.c_int), ("limiter_ceiling_db", C.c_float)]
 
 
 class _EqBand(C.Structure):
@@ -112,6 +114,7 @@ def _declare(lib):
         "nf_pipeline_create": ([C.POINTER(_Config)], P), "nf_pipeline_destroy": ([P], V),
         "nf_pipeline_set_config": ([P, C.POINTER(_Config)], V),
         "nf_pipeline_get_config": ([P, C.POINTER(_Config)], V),
+        "nf_pipeline_get_dynamics": ([P, F, F], V),
         "nf_pipeline_set_eq": ([P, I, C.POINTER(_EqBand), I], V),
         "nf_pipeline_set_spectral_params": ([P, C.c_float, C.c_float, C.c_float], V),
         "nf_pipeline_load_onnx": ([P, C.c_char_p, C.c_char_p, I], I),
@@ -138,7 +141,10 @@ def _fptr(a: np.ndarray):
 
 def _to_c(cfg: PipelineConfig) -> _Config:
     return _Config(int(cfg.bypass), float(cfg.highpass_hz), _MODES.get(cfg.denoise, 1), float(cfg.strength),
-                   int(cfg.gate_enabled), float(cfg.gate_threshold_db), float(cfg.output_gain_db))
+                   int(cfg.gate_enabled), float(cfg.gate_threshold_db), float(cfg.output_gain_db),
+                   int(cfg.comp_enabled), float(cfg.comp_threshold_db), float(cfg.comp_ratio),
+                   float(cfg.comp_attack_ms), float(cfg.comp_release_ms), float(cfg.comp_makeup_db),
+                   int(cfg.limiter_enabled), float(cfg.limiter_ceiling_db))
 
 
 class NativeAnalyzer:
@@ -251,6 +257,12 @@ class NativePipeline:
             self._push_eq()
         if "onnx_model" in changes and self.cfg.onnx_model:
             self._load_onnx(self.cfg.onnx_model)
+
+    def dynamics_gr_db(self) -> tuple[float, float]:
+        """(compressor, limiter) gain reduction in dB, for the meters."""
+        c, l = C.c_float(0), C.c_float(0)
+        self._lib.nf_pipeline_get_dynamics(self._h, C.byref(c), C.byref(l))
+        return float(c.value), float(l.value)
 
     def capture_start(self, max_samples: int) -> None:
         self._cap_max = max(int(max_samples), 0)

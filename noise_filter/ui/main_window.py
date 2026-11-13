@@ -9,6 +9,7 @@ from ..i18n import tr
 from . import autostart, settings
 from .spectrum_plot import SpectrumPlot
 from .eq_panel import EqPanel
+from .dynamics_panel import DynamicsPanel
 from .contribute_dialog import ContributeDialog, UploadWorker
 
 LANGS = [("en", "English"), ("id", "Bahasa Indonesia")]
@@ -143,7 +144,10 @@ class MainWindow(W.QMainWindow):
         self.eq_panel.changed.connect(lambda on, bands: self._set(eq_enabled=on, eq_bands=bands))
         self.eq_panel.presets_changed.connect(self._eq_presets_changed)
         self.tabs.addTab(self.eq_panel, "")
-        self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % 2)
+        self.dyn_panel = DynamicsPanel(self.pipe.cfg, self.lang)
+        self.dyn_panel.changed.connect(lambda kw: self._set(**kw))
+        self.tabs.addTab(self.dyn_panel, "")
+        self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % self.tabs.count())
         self.tabs.currentChanged.connect(lambda _: self._save())
         root.addWidget(self.tabs, 1)
 
@@ -295,7 +299,9 @@ class MainWindow(W.QMainWindow):
         self.tools_box.setTitle(t("tools.title"))
         self.set_box.setTitle(t("settings.title"))
         self.tabs.setTabText(0, t("tab.analyzer")); self.tabs.setTabText(1, t("tab.eq"))
+        self.tabs.setTabText(2, t("tab.dynamics").replace("&", "&&"))   # "&" is not a shortcut
         self.eq_panel.retranslate(self.lang)
+        self.dyn_panel.retranslate(self.lang)
         self.lang_lbl.setText(t("settings.lang"))
         self.tray_cb.setText(t("settings.tray")); self.tray_cb.setToolTip(t("settings.tray_tip"))
         self.autostart_cb.setText(t("settings.autostart"))
@@ -524,6 +530,8 @@ class MainWindow(W.QMainWindow):
         self.out_plot.set_data(o_db, ref=i_db)
         if self.tabs.currentIndex() == 1:
             self.eq_panel.set_spectrum(o_db)
+        elif self.tabs.currentIndex() == 2 and hasattr(p, "dynamics_gr_db"):
+            self.dyn_panel.set_meters(p.in_analyzer.level_db(), *p.dynamics_gr_db())
         self.in_bar.setValue(int(max(-80, p.in_analyzer.level_db())))
         self.out_bar.setValue(int(max(-80, p.out_analyzer.level_db())))
         backend = tr("engine.backend", self.lang).format(name="C++" if self.native else "Python")
