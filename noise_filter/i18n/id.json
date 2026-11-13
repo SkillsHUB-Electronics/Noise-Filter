@@ -5,7 +5,7 @@
   "device.refresh": "Segarkan perangkat",
   "mode.bypass": "Lewati (bypass)",
   "denoise.spectral": "Spektral (cepat, klasik)",
-  "denoise.onnx": "Model AI (ONNX)",
+  "denoise.onnx": "Model AI",
   "analyzer.input": "Spektrum input",
   "analyzer.output": "Spektrum output",
   "noise.learn": "Pelajari noise ruangan saya",
@@ -25,5 +25,10 @@
   "noise.learning": "Mendengarkan... {s}dtk (diam)",
   "noise.learned": "Profil noise ruangan sudah dipelajari.",
   "engine.backend": "Mesin: {name}",
-  "engine.latency": "Latensi"
+  "engine.latency": "Latensi",
+  "model.none": "Belum ada model AI. Sambungkan internet sekali, atau pasang ulang.",
+  "model.updated": "Model AI diperbarui ke versi {v}.",
+  "model.missing": "belum terpasang",
+  "denoise.off": "Mati",
+  "model.error": "Gagal memuat model AI"
 }

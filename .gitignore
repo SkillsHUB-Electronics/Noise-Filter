@@ -4,6 +4,7 @@ __pycache__/
 build/
 dist/
 *.onnx
+!noise_filter/models/*.onnx
 *.wav
 cpp/build*/
 noise_filter/_native/
