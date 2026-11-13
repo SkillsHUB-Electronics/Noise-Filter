@@ -147,12 +147,7 @@ class MainWindow(W.QMainWindow):
         self.dyn_panel = DynamicsPanel(self.pipe.cfg, self.lang)
         self.dyn_panel.changed.connect(lambda kw: self._set(**kw))
         self.tabs.addTab(self.dyn_panel, "")
-        self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % self.tabs.count())
-        self.tabs.currentChanged.connect(lambda _: self._save())
         root.addWidget(self.tabs, 1)
-
-        bottom = W.QHBoxLayout()
-        root.addLayout(bottom)
 
         # filter controls: label | slider | value, one row each
         box = W.QGroupBox(); self.ctrl_box = box
@@ -172,39 +167,33 @@ class MainWindow(W.QMainWindow):
         val_w = self.fontMetrics().horizontalAdvance("-100 dB") + 8
         for v in self.vals.values():
             v.setMinimumWidth(val_w); v.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-        g.addWidget(self.bypass, 0, 0, 1, 3)
-        g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
-        for r, (lbl, s, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
-                                         (self.lbls["hp"], self.hp, "hp"),
-                                         (self.gate_on, self.gate_th, "gate"),
-                                         (self.lbls["gain"], self.gain, "gain")), start=2):
-            g.addWidget(lbl, r, 0); g.addWidget(s, r, 1); g.addWidget(self.vals[k], r, 2)
-        g.setColumnStretch(1, 1)
-        bottom.addWidget(box, 3)
-
-        # tools: learn noise, model update, noise-sample sharing
-        self.tools_box = W.QGroupBox()
-        tl = W.QVBoxLayout(self.tools_box)
         self.learn_btn, self.train_btn = W.QPushButton(), W.QPushButton()
         self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
+        # two columns of label | slider | value, in signal-chain order
+        g.addWidget(self.bypass, 0, 0, 1, 3); g.addWidget(self.learn_btn, 0, 4, 1, 3)
+        g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
+        for r, (lbl, sl_, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
+                                           (self.lbls["hp"], self.hp, "hp")), start=2):
+            g.addWidget(lbl, r, 0); g.addWidget(sl_, r, 1); g.addWidget(self.vals[k], r, 2)
+        for r, (lbl, sl_, k) in enumerate(((self.gate_on, self.gate_th, "gate"),
+                                           (self.lbls["gain"], self.gain, "gain")), start=1):
+            g.addWidget(lbl, r, 4); g.addWidget(sl_, r, 5); g.addWidget(self.vals[k], r, 6)
+        g.setColumnMinimumWidth(3, 16)
+        g.setColumnStretch(1, 1); g.setColumnStretch(5, 1)
+        root.addWidget(box)
+
         # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
         self.contrib_cb, self.contrib_del = W.QCheckBox(), W.QPushButton()
         self.contrib_cb.setChecked(contribute.load_state().get("ask", True))
         self.contrib_cb.toggled.connect(lambda v: contribute.save_state(ask=v))
         self.contrib_del.clicked.connect(self._delete_samples)
-        for w in (self.learn_btn, self.train_btn, self.contrib_cb, self.contrib_del):
-            tl.addWidget(w)
-        tl.addStretch(1)
-        bottom.addWidget(self.tools_box, 2)
         self._sample_signal = _SampleSignal()
         self._sample_signal.ready.connect(self._offer_sample)
         self._uploader = UploadWorker()
         self._uploader.done.connect(self._upload_done)
         self._capturing = False
 
-        # app settings: language, tray, Windows startup, resume
-        self.set_box = W.QGroupBox()
-        sl = W.QGridLayout(self.set_box)
+        # Settings tab: language; background & startup; AI model & noise samples
         self.lang_lbl = W.QLabel()
         self.lang_cb = W.QComboBox()
         for code, name in LANGS: self.lang_cb.addItem(name, code)
@@ -215,11 +204,34 @@ class MainWindow(W.QMainWindow):
         self.autostart_cb = W.QCheckBox(); self.autostart_cb.setChecked(autostart.is_enabled())
         self.autostart_cb.setEnabled(autostart.supported())
         self.resume_cb = W.QCheckBox(); self.resume_cb.setChecked(bool(self.data.get("resume", True)))
-        sl.addWidget(self.lang_lbl, 0, 0); sl.addWidget(self.lang_cb, 0, 1)
-        for r, w in enumerate((self.tray_cb, self.autostart_cb, self.resume_cb), start=1):
-            sl.addWidget(w, r, 0, 1, 2)
-        sl.setRowStretch(4, 1); sl.setColumnStretch(1, 1)
-        bottom.addWidget(self.set_box, 2)
+        page = W.QWidget()
+        pl = W.QVBoxLayout(page)
+        self.gen_box, self.bg_box, self.ai_box = W.QGroupBox(), W.QGroupBox(), W.QGroupBox()
+        gl = W.QHBoxLayout(self.gen_box)
+        gl.addWidget(self.lang_lbl); gl.addWidget(self.lang_cb); gl.addStretch(1)
+        bl = W.QVBoxLayout(self.bg_box)
+        self.set_notes = {}
+        for w in (self.tray_cb, self.autostart_cb, self.resume_cb):
+            note = W.QLabel(); note.setWordWrap(True)
+            note.setStyleSheet("color: palette(placeholder-text); margin-left: 24px; margin-bottom: 4px;")
+            bl.addWidget(w); bl.addWidget(note)
+            self.set_notes[w] = note
+        al = W.QVBoxLayout(self.ai_box)
+        row = W.QHBoxLayout(); row.addWidget(self.train_btn); row.addStretch(1)
+        al.addLayout(row)
+        al.addWidget(self.contrib_cb)
+        row = W.QHBoxLayout(); row.addWidget(self.contrib_del); row.addStretch(1)
+        al.addLayout(row)
+        cols = W.QHBoxLayout()
+        left = W.QVBoxLayout(); left.addWidget(self.gen_box); left.addWidget(self.ai_box); left.addStretch(1)
+        cols.addLayout(left, 1); cols.addWidget(self.bg_box, 1, QtCore.Qt.AlignTop)
+        pl.addLayout(cols); pl.addStretch(1)
+        self.set_box = W.QScrollArea(); self.set_box.setWidgetResizable(True)
+        self.set_box.setFrameShape(W.QFrame.NoFrame)
+        self.set_box.setWidget(page)
+        self.tabs.addTab(self.set_box, "")
+        self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % self.tabs.count())
+        self.tabs.currentChanged.connect(lambda _: self._save())
         self.tray_cb.toggled.connect(lambda _: self._save())
         self.resume_cb.toggled.connect(lambda _: self._save())
         self.autostart_cb.toggled.connect(self._autostart_changed)
@@ -296,8 +308,10 @@ class MainWindow(W.QMainWindow):
         t = lambda k: tr(k, self.lang)
         self.setWindowTitle(t("app.title"))
         self.dev_box.setTitle(t("device.title"))
-        self.tools_box.setTitle(t("tools.title"))
-        self.set_box.setTitle(t("settings.title"))
+        amp = lambda k: t(k).replace("&", "&&")   # a literal "&", not a keyboard shortcut
+        self.gen_box.setTitle(t("settings.general")); self.bg_box.setTitle(amp("settings.background"))
+        self.ai_box.setTitle(amp("settings.ai"))
+        self.tabs.setTabText(3, t("settings.title"))
         self.tabs.setTabText(0, t("tab.analyzer")); self.tabs.setTabText(1, t("tab.eq"))
         self.tabs.setTabText(2, t("tab.dynamics").replace("&", "&&"))   # "&" is not a shortcut
         self.eq_panel.retranslate(self.lang)
@@ -307,6 +321,8 @@ class MainWindow(W.QMainWindow):
         self.autostart_cb.setText(t("settings.autostart"))
         self.autostart_cb.setToolTip(t("settings.autostart_tip") if autostart.supported() else t("settings.autostart_na"))
         self.resume_cb.setText(t("settings.resume")); self.resume_cb.setToolTip(t("settings.resume_tip"))
+        for w in self.set_notes:
+            self.set_notes[w].setText(w.toolTip())
         self.in_lbl.setText(t("device.input")); self.out_lbl.setText(t("device.output"))
         self.refresh_btn.setText(t("device.refresh"))
         self.excl.setText(t("device.exclusive"))

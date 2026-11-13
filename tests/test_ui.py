@@ -308,8 +308,11 @@ def test_dynamics_tab(tmp_path, monkeypatch):
         w._demo_frame()
     w._tick()
     assert d.comp_gr.value() > 0
-    assert "&&" in w.tabs.tabText(2)
+    assert "&&" in w.tabs.tabText(2) and "&&" in w.bg_box.title()
+    w.tabs.setCurrentIndex(3)                               # settings live in their own tab
+    assert w.tabs.currentWidget() is w.set_box and w.set_box.isAncestorOf(w.autostart_cb)
+    assert w.set_box.isAncestorOf(w.train_btn) and w.ctrl_box.isAncestorOf(w.learn_btn)
     w.close()
     w2 = MainWindow(demo=True)
-    assert w2.pipe.cfg.comp_ratio == 8.0 and w2.dyn_panel.sliders["comp_ratio"].value() == 80 and w2.tabs.currentIndex() == 2
+    assert w2.pipe.cfg.comp_ratio == 8.0 and w2.dyn_panel.sliders["comp_ratio"].value() == 80 and w2.tabs.currentIndex() == 3
     w2.close()

@@ -55,7 +55,6 @@
   "contrib.thanks": "Thank you! Your noise sample was sent.",
   "contrib.failed": "Could not send the sample",
   "device.title": "Audio devices",
-  "tools.title": "Tools",
   "settings.title": "Settings",
   "settings.lang": "Language",
   "settings.tray": "Keep running in the tray when closed",
@@ -121,5 +120,8 @@
   "dyn.comp_makeup_db": "Makeup gain",
   "dyn.limiter_ceiling_db": "Ceiling",
   "dyn.comp_gr": "Compressor reduction",
-  "dyn.limiter_gr": "Limiter reduction"
+  "dyn.limiter_gr": "Limiter reduction",
+  "settings.general": "General",
+  "settings.background": "Background & startup",
+  "settings.ai": "AI model & noise samples"
 }

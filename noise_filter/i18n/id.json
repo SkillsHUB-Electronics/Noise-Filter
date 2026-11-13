@@ -55,7 +55,6 @@
   "contrib.thanks": "Terima kasih! Sampel noise sudah terkirim.",
   "contrib.failed": "Gagal mengirim sampel",
   "device.title": "Perangkat audio",
-  "tools.title": "Alat",
   "settings.title": "Pengaturan",
   "settings.lang": "Bahasa",
   "settings.tray": "Tetap jalan di tray saat ditutup",
@@ -121,5 +120,8 @@
   "dyn.comp_makeup_db": "Gain makeup",
   "dyn.limiter_ceiling_db": "Batas atas",
   "dyn.comp_gr": "Pengurangan kompresor",
-  "dyn.limiter_gr": "Pengurangan limiter"
+  "dyn.limiter_gr": "Pengurangan limiter",
+  "settings.general": "Umum",
+  "settings.background": "Background & startup",
+  "settings.ai": "Model AI & sampel noise"
 }
