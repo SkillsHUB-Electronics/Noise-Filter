@@ -6,6 +6,7 @@
  * go to rejected/ and are deleted by CI after 30 days.
  *
  *   GET  /review                          the review page (HTML; asks for the password)
+ *   GET  /review/logo.png                 the app logo used by the page
  *   GET  /v1/review/list?state=review     samples in one state (review|accepted|rejected|incoming)
  *   GET  /v1/review/audio?key=...         one sample's WAV
  *   POST /v1/review/decide                {keys: [...], decision: "accept"|"reject"|"review"}
@@ -16,6 +17,9 @@
  * routes are switched off.
  */
 import { REVIEW_PAGE } from "./review_page.js";
+import { LOGO_PNG_BASE64 } from "./review_logo.js";
+
+const LOGO = Uint8Array.from(atob(LOGO_PNG_BASE64), (c) => c.charCodeAt(0));
 
 export const STATES = ["review", "accepted", "rejected", "incoming"];
 const DEST = { accept: "accepted", reject: "rejected", review: "review" };
@@ -119,6 +123,9 @@ export async function handleReview(request, env, url) {
         "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src 'self' blob:; img-src 'self' data:",
       },
     });
+  }
+  if (url.pathname === "/review/logo.png") {
+    return new Response(LOGO, { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
   }
   if (!url.pathname.startsWith("/v1/review/")) return null;
   if (!env.REVIEW_PASSWORD || env.REVIEW_PASSWORD.length < 12)

@@ -42,6 +42,9 @@ test("review page is served without a password, the API is not", async () => {
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Review sampel noise/);
   assert.match(page.headers.get("content-security-policy"), /default-src 'self'/);
+  const logo = await worker.fetch(new Request("https://x/review/logo.png"), e);
+  assert.equal(logo.headers.get("content-type"), "image/png");
+  assert.deepEqual([...new Uint8Array(await logo.arrayBuffer()).slice(1, 4)], [80, 78, 71]);   // "PNG"
   assert.equal((await worker.fetch(req("/v1/review/stats", { pw: "wrong password!!" }), e)).status, 401);
   assert.equal((await worker.fetch(new Request("https://x/v1/review/stats"), e)).status, 401);
   assert.equal((await worker.fetch(req("/v1/review/stats"), { ...e, REVIEW_PASSWORD: undefined })).status, 503);

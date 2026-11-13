@@ -25,7 +25,7 @@ Samples that were accepted automatically before the review step existed go back 
 2. Run the "Sample intake Worker" workflow once (Actions → Run workflow) so it stores the password in the Worker.
 3. Open `https://noise-filter-samples.mukhamadkhoirul.workers.dev/review` and log in.
 
-Shortcuts: Space play/pause, A accept, R reject, U back to the queue, ↓/J and ↑/K to move. A wrong password
+Shortcuts: Space play/pause, A accept, R reject, U back to the queue, Z undo, ↓/J and ↑/K to move. A wrong password
 is limited to 5 tries a minute.
 
 ## Tests
