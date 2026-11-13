@@ -11,6 +11,12 @@ ships today, and, when the new model is better, commits it to `noise_filter/mode
 Merging the branch ships it: every app downloads it on its next start (verified by SHA-256).
 A commit whose message contains `[train]` also starts a run.
 
+Every Sunday 01:00 UTC the workflow also runs on its own. If users contributed new noise samples
+(F3) since the shipped model, it retrains with them and publishes the result to the default branch
+when it passes the quality gate, so every app gets it with its next update check. Weeks without
+new samples are skipped. The shipped manifest records how many contributed samples it was trained
+with (`contrib_samples`).
+
 ## Train on your own PC
 ```
 pip install torch scipy soundfile pystoi pesq onnx onnxruntime -e .
