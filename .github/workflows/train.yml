@@ -47,11 +47,22 @@ jobs:
         run: |
           if [ ! -d data/clean ]; then python -m training.download_data --out data --speakers "$SPEAKERS" --demand 10; fi
           du -sh data/*
+      - name: Fetch contributed noise from R2 (F3)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          mkdir -p data/contrib
+          if [ -z "$R2_ACCESS_KEY_ID" ]; then echo "::notice::R2 secrets not set; training without contributed noise."; exit 0; fi
+          pip install boto3
+          python -m training.contrib_samples --out data/contrib --base-noise data/noise
+          { echo "### Contributed noise"; echo '```json'; cat data/contrib/contrib_report.json; echo '```'; } >> $GITHUB_STEP_SUMMARY
       - name: Train
         run: |
           VER="${{ github.event.inputs.version }}"; VER="${VER:-$(date +%Y.%m.%d)}"
           echo "VER=$VER" >> $GITHUB_ENV
-          python -m training.train --clean data/clean --noise data/noise --minutes "$MINUTES" \
+          python -m training.train --clean data/clean --noise data/noise data/contrib --minutes "$MINUTES" \
             --batch 16 --workers 3 --version "$VER" --out runs/latest
           cat runs/latest/report.md >> $GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v4

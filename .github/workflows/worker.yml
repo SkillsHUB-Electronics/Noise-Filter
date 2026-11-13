@@ -32,3 +32,13 @@ jobs:
             exit 0
           fi
           npx --yes wrangler@4 deploy
+      - name: Smoke test the deployed Worker
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then exit 0; fi
+          URL=https://noise-filter-samples.mukhamadkhoirul.workers.dev
+          sleep 5
+          curl -fsS "$URL/v1/health"; echo
+          node test/smoke.mjs "$URL"
