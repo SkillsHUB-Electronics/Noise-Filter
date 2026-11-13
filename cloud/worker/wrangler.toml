@@ -1,0 +1,15 @@
+name = "noise-filter-samples"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "SAMPLES"
+bucket_name = "nf-noise"
+
+# At most 5 uploads per installation per minute (the binding only supports 10 s or 60 s
+# periods). Daily caps and per-installation shares are enforced when CI screens samples.
+[[ratelimits]]
+name = "UPLOAD_LIMIT"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }
