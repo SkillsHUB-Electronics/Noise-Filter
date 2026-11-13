@@ -25,7 +25,8 @@ Equalizer (0.5.0): up to 8 parametric bands after the denoiser (peak, low/high s
 12-48 dB/oct, band-pass, notch) in both the C++ core (`cpp/src/eq.cpp`, `nf_pipeline_set_eq`, C API v2) and Python
 (`core/eq.py`), checked sample-by-sample against each other. The Equalizer tab draws the curve over the output spectrum
 with draggable points (scroll = Q), a band table, built-in presets (clearer voice, 50/60 Hz hum, telephone, podcast...)
-and the user's own presets.
+and the user's own presets. Since 0.5.1 several presets can be ticked at once and are merged into one band list
+(one high-/low-pass, nearby peaks/shelves combined, up to 8 bands; presets that would not fit are greyed out).
 Dynamics (0.5.0): soft-knee compressor (threshold, ratio, attack, release, makeup) and a zero-latency peak limiter
 (on by default at -1 dBFS) in C++ (`cpp/src/dynamics.cpp`) and Python (`core/dynamics.py`), with a transfer-curve
 graph and gain-reduction meters in the "Compressor & limiter" tab.

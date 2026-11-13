@@ -83,7 +83,7 @@
   "eq.save": "Simpan sebagai preset…",
   "eq.save_prompt": "Nama preset:",
   "eq.delete_preset": "Hapus preset",
-  "eq.hint": "Geser titik untuk mengubah frekuensi dan gain, scroll di atasnya untuk mengubah Q (lebar). Klik dua kali di grafik untuk menambah band.",
+  "eq.hint": "Geser titik untuk mengubah frekuensi dan gain, scroll di atasnya untuk mengubah Q (lebar). Klik dua kali di grafik untuk menambah band. Centang beberapa preset untuk menggabungkannya.",
   "eq.col.on": "Aktif",
   "eq.col.type": "Jenis",
   "eq.col.freq": "Frekuensi",
@@ -98,7 +98,6 @@
   "eq.type.highpass": "High-pass (Butterworth)",
   "eq.type.bandpass": "Band-pass",
   "eq.type.notch": "Notch (dengung)",
-  "eq.preset.flat": "Datar (tanpa EQ)",
   "eq.preset.voice_clarity": "Suara lebih jelas",
   "eq.preset.hum_50": "Hapus dengung 50 Hz",
   "eq.preset.hum_60": "Hapus dengung 60 Hz",
@@ -123,5 +122,6 @@
   "dyn.limiter_gr": "Pengurangan limiter",
   "settings.general": "Umum",
   "settings.background": "Background & startup",
-  "settings.ai": "Model AI & sampel noise"
+  "settings.ai": "Model AI & sampel noise",
+  "eq.preset_clear": "Hapus semua (datar)"
 }
