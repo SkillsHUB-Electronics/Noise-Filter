@@ -222,6 +222,14 @@ class MainWindow(W.QMainWindow):
         page = W.QWidget()
         pl = W.QVBoxLayout(page)
         self.gen_box, self.bg_box, self.ai_box = W.QGroupBox(), W.QGroupBox(), W.QGroupBox()
+        self.ctl_box = W.QGroupBox()             # command line / MCP control (noise_filter.remote)
+        cl = W.QVBoxLayout(self.ctl_box)
+        self.ctl_note = W.QLabel(); self.ctl_note.setWordWrap(True)
+        self.ctl_copy = W.QPushButton()
+        self.ctl_copy.clicked.connect(self._copy_mcp_config)
+        cl.addWidget(self.ctl_note)
+        row = W.QHBoxLayout(); row.addWidget(self.ctl_copy); row.addStretch(1)
+        cl.addLayout(row)
         gl = W.QHBoxLayout(self.gen_box)
         self.lang_cb.setMinimumWidth(200)
         gl.addWidget(self.lang_lbl); gl.addWidget(self.lang_cb); gl.addStretch(1)
@@ -239,7 +247,7 @@ class MainWindow(W.QMainWindow):
         row = W.QHBoxLayout(); row.addWidget(self.contrib_file); row.addWidget(self.contrib_del); row.addStretch(1)
         al.addLayout(row)
         # one column of equally wide boxes, in order of how often they are needed
-        for b in (self.gen_box, self.bg_box, self.ai_box):
+        for b in (self.gen_box, self.bg_box, self.ai_box, self.ctl_box):
             b.setMaximumWidth(760)
             pl.addWidget(b)
         pl.addStretch(1)
@@ -308,6 +316,12 @@ class MainWindow(W.QMainWindow):
         self._quitting = True
         self.close()
 
+    def _copy_mcp_config(self):
+        import json
+        from ..ctl import mcp_config
+        W.QApplication.clipboard().setText(json.dumps(mcp_config(), indent=2))
+        self.status.setText(tr("settings.control_copied", self.lang))
+
     def _autostart_changed(self, on: bool):
         try:
             autostart.set_enabled(on)
@@ -325,7 +339,8 @@ class MainWindow(W.QMainWindow):
         self.dev_box.setTitle(t("device.title"))
         amp = lambda k: t(k).replace("&", "&&")   # a literal "&", not a keyboard shortcut
         self.gen_box.setTitle(t("settings.general")); self.bg_box.setTitle(amp("settings.background"))
-        self.ai_box.setTitle(amp("settings.ai"))
+        self.ai_box.setTitle(amp("settings.ai")); self.ctl_box.setTitle(amp("settings.control"))
+        self.ctl_note.setText(t("settings.control_note")); self.ctl_copy.setText(t("settings.control_copy"))
         self.tabs.setTabText(3, t("settings.title"))
         self.tabs.setTabText(0, t("tab.analyzer").replace("&", "&&")); self.tabs.setTabText(1, t("tab.eq"))
         self.tabs.setTabText(2, t("tab.dynamics").replace("&", "&&"))   # "&" is not a shortcut

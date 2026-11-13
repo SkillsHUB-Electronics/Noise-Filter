@@ -23,4 +23,18 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="NoiseFilter", console=False,
           icon=str(root / "noise_filter" / "assets" / "icon.ico"), version=None)
-coll = COLLECT(exe, a.binaries, a.datas, name="NoiseFilter")
+
+# nfctl.exe: the same package as a console program, so terminals, scripts and AI agents can control the
+# running app (`nfctl status`, `nfctl start`, `nfctl mcp` for MCP clients). It needs no Qt.
+b = Analysis(
+    [str(root / "packaging" / "windows" / "nfctl.py")],
+    pathex=[str(root)],
+    hiddenimports=["noise_filter.ctl", "noise_filter.remote", "noise_filter.mcp_server"],
+    excludes=["tkinter", "matplotlib", "scipy", "pytest", "PySide6", "pyqtgraph", "onnxruntime", "torch",
+              "sounddevice"],
+    noarchive=False,
+)
+pyz_b = PYZ(b.pure)
+exe_b = EXE(pyz_b, b.scripts, [], exclude_binaries=True, name="nfctl", console=True,
+            icon=str(root / "noise_filter" / "assets" / "icon.ico"), version=None)
+coll = COLLECT(exe, exe_b, a.binaries, a.datas, b.binaries, b.datas, name="NoiseFilter")

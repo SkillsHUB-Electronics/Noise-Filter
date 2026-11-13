@@ -144,5 +144,9 @@
   "settings.general": "Umum",
   "settings.background": "Background & startup",
   "settings.ai": "Model AI & sampel noise",
-  "eq.preset_clear": "Hapus semua (datar)"
+  "eq.preset_clear": "Hapus semua (datar)",
+  "settings.control": "Kendali lewat command line & AI",
+  "settings.control_note": "Program lain dan asisten AI bisa mengendalikan Noise Filter selama aplikasi berjalan, misalnya \"nfctl status\", \"nfctl start\" atau \"nfctl set strength=1.3\" di terminal. Aplikasi AI yang mendukung MCP (seperti Claude Desktop) bisa memakainya sebagai tool: salin pengaturan MCP lalu tambahkan ke konfigurasi MCP aplikasi tersebut. Hanya program di PC ini, dengan akun Windows Anda, yang bisa terhubung.",
+  "settings.control_copy": "Salin pengaturan MCP",
+  "settings.control_copied": "Pengaturan MCP sudah disalin ke clipboard."
 }

@@ -36,6 +36,39 @@ clip is voice-checked on the PC). The Worker in `cloud/worker/` stores them in R
 `review/`, and the developer accepts or rejects each one on the review page (`/review` on the Worker, password from the
 GitHub secret `REVIEW_PASSWORD`). Only accepted samples are used for training. See [cloud/worker/README.md](cloud/worker/README.md).
 
+## Control by command line or AI (0.7.0)
+The running app can be controlled from a terminal, a script or an AI assistant. The installer adds `nfctl.exe`
+(a console companion of `NoiseFilter.exe`) and can put it on `PATH`. Every command prints JSON; exit code 0 = ok,
+1 = error, 3 = the app is not running.
+```
+nfctl status                                   # on/off, devices, every setting, levels, latency
+nfctl start                                    # opens the app in the tray first if needed
+nfctl stop
+nfctl set strength=1.3 highpass_hz=100 denoise=ai gate_enabled=off
+nfctl devices
+nfctl device --input "USB" --output "CABLE Input" [--exclusive | --shared]
+nfctl presets / nfctl preset voice_clarity hum_50 / nfctl preset --clear
+nfctl learn                                    # learn room noise for 3 s (filter on, stay quiet)
+nfctl launch | show | hide | quit
+nfctl help                                     # every setting with its range
+```
+From source the same commands are `noise-filter ctl ...`.
+
+**MCP server** for AI apps (Claude Desktop, Claude Code, other MCP clients): `nfctl mcp` speaks MCP over stdio with the
+tools `get_status`, `start_filter`, `stop_filter`, `set_settings`, `list_devices`, `select_devices`, `list_eq_presets`,
+`set_eq_presets`, `learn_noise`, `show_window`, `hide_window`, `quit_app`. Settings > "Command line & AI control" >
+"Copy MCP setting" copies the entry to add to the client's configuration, for example in Claude Desktop's
+`claude_desktop_config.json`:
+```json
+{"mcpServers": {"noise-filter": {"command": "C:\\Program Files\\Noise Filter\\nfctl.exe", "args": ["mcp"]}}}
+```
+or for Claude Code: `claude mcp add noise-filter -- "C:\Program Files\Noise Filter\nfctl.exe" mcp`.
+
+How it works: the app listens on a local named pipe (`\\.\pipe\SkillsHUB.NoiseFilter.<user>`) that only the signed-in
+Windows user can open; nothing listens on the network. Each request and answer is one JSON line
+(`{"cmd": "set", "args": {"strength": 1.2}}` -> `{"ok": true, "result": {...}}`). Commands go through the same controls
+as the window, so the window, the tray and the saved settings always match. See `noise_filter/remote.py`.
+
 ## Low latency design
 - Fixed 480-sample frames (10 ms). Spectral denoiser adds 1 frame of algorithmic delay.
 - `core/` has no UI/device imports and works on one frame at a time; `cpp/` is its 1:1 C++ port (ONNX models are reused as-is).

@@ -144,5 +144,9 @@
   "settings.general": "General",
   "settings.background": "Background & startup",
   "settings.ai": "AI model & noise samples",
-  "eq.preset_clear": "Clear all (flat)"
+  "eq.preset_clear": "Clear all (flat)",
+  "settings.control": "Command line & AI control",
+  "settings.control_note": "Other programs and AI assistants can control Noise Filter while it runs, for example \"nfctl status\", \"nfctl start\" or \"nfctl set strength=1.3\" in a terminal. AI apps that support MCP (such as Claude Desktop) can use it as a tool: copy the MCP setting and add it to the app's MCP configuration. Only programs on this PC, signed in as you, can connect.",
+  "settings.control_copy": "Copy MCP setting",
+  "settings.control_copied": "MCP setting copied to the clipboard."
 }

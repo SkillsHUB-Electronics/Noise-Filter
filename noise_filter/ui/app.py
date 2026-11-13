@@ -15,41 +15,17 @@ def app_icon(QtGui):
     return icon
 
 
-def _server_name() -> str:
-    import getpass
-    try:
-        user = getpass.getuser()
-    except Exception:
-        user = "user"
-    return f"SkillsHUB.NoiseFilter.{user}"
-
-
-def _ask_running_instance(name: str) -> bool:
+def _ask_running_instance(name: str, show: bool = True) -> bool:
     """True when another Noise Filter is already open; it is asked to show its window."""
     from PySide6.QtNetwork import QLocalSocket
     sock = QLocalSocket()
     sock.connectToServer(name)
     if not sock.waitForConnected(300):
         return False
-    sock.write(b"show\n"); sock.flush(); sock.waitForBytesWritten(300)
+    if show:
+        sock.write(b"show\n"); sock.flush(); sock.waitForBytesWritten(300)
     sock.disconnectFromServer()
     return True
-
-
-def _listen(name: str, on_show):
-    from PySide6.QtNetwork import QLocalServer
-    server = QLocalServer()
-    if not server.listen(name):          # stale socket after a crash (Unix)
-        QLocalServer.removeServer(name)
-        server.listen(name)
-
-    def accept():
-        while server.hasPendingConnections():
-            c = server.nextPendingConnection()
-            c.readyRead.connect(on_show)
-            c.disconnected.connect(c.deleteLater)
-    server.newConnection.connect(accept)
-    return server
 
 
 def run(demo: bool = False, minimized: bool = False) -> int:
@@ -64,12 +40,16 @@ def run(demo: bool = False, minimized: bool = False) -> int:
     app.setApplicationName("Noise Filter")
     app.setWindowIcon(app_icon(QtGui))
     app.setQuitOnLastWindowClosed(False)   # closing to the tray keeps the filter running
-    name = _server_name()
-    if not demo and _ask_running_instance(name):
+    import os
+    from ..remote import server_name
+    name = server_name()
+    if not demo and _ask_running_instance(name, show=not minimized):
         return 0                           # one instance only: two would fight over the microphone
     from .main_window import MainWindow
+    from .control_server import listen
     w = MainWindow(demo=demo)
-    server = _listen(name, w.show_window) if not demo else None   # noqa: F841 (kept alive)
+    # local control channel for `noise-filter ctl` / the MCP server (a demo window only for tests)
+    server = listen(name, w) if not demo or os.environ.get("NF_CONTROL_NAME") else None   # noqa: F841 (kept alive)
     if minimized and w.tray.isVisible():
         pass                               # start-up with Windows: stay in the tray
     elif minimized:

@@ -16,12 +16,22 @@ def main(argv=None):
     run.add_argument("--out", dest="outdev", type=int, required=True)
     run.add_argument("--exclusive", action="store_true", help="WASAPI exclusive mode (lowest latency)")
     run.add_argument("--bypass", action="store_true")
+    from . import ctl
+    ctl.add_parser(sub)
+    sub.add_parser("mcp", help="MCP server on stdin/stdout so AI apps (Claude, ...) can control the running app")
     st = sub.add_parser("selftest", help="check the C++ core and i18n load (used by the installer build)")
     st.add_argument("--out", help="write the report to this file instead of stdout")
     a = ap.parse_args(argv)
 
     if a.cmd == "selftest":
         return selftest(a.out)
+
+    if a.cmd == "ctl":
+        return ctl.run(a)
+
+    if a.cmd == "mcp":
+        from .mcp_server import serve
+        return serve()
 
     if a.cmd == "ui":
         from .ui.app import run as run_ui
