@@ -17,7 +17,10 @@ automatically when the DLL is built (about 15x cheaper DSP, audio thread free of
 AI denoiser (`training/`, NFNet): small realtime model (0.4 ms per 10 ms frame in C++), trained in GitHub Actions
 on public 48 kHz data, shipped with the installer and updated automatically (verified download, live swap). See
 [training/README.md](training/README.md).
-Next: opt-in noise contributions (F3), then the Android app on the same C++ core.
+Background use (0.5.0): system-tray icon (show/hide, filter on/off, quit; green dot while filtering), settings for
+"keep running in the tray when closed", "start with Windows" (per-user `HKCU\...\Run`, opens hidden with
+`noise-filter ui --minimized`) and "turn the filter back on at launch". Every setting, the devices and the window size
+are remembered in `%APPDATA%\NoiseFilter\config.json`; only one instance runs (opening it again shows the window).
 
 ## Low latency design
 - Fixed 480-sample frames (10 ms). Spectral denoiser adds 1 frame of algorithmic delay.

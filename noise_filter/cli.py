@@ -10,6 +10,7 @@ def main(argv=None):
     sub.add_parser("devices", help="list input/output devices (WASAPI)")
     ui = sub.add_parser("ui", help="open the graphical interface")
     ui.add_argument("--demo", action="store_true", help="synthetic input signal (no audio device needed)")
+    ui.add_argument("--minimized", action="store_true", help="start hidden in the system tray (used at Windows sign-in)")
     run = sub.add_parser("run", help="live: input device -> filter -> output device")
     run.add_argument("--in", dest="indev", type=int, required=True)
     run.add_argument("--out", dest="outdev", type=int, required=True)
@@ -24,7 +25,7 @@ def main(argv=None):
 
     if a.cmd == "ui":
         from .ui.app import run as run_ui
-        return run_ui(demo=a.demo)
+        return run_ui(demo=a.demo, minimized=a.minimized)
 
     if a.cmd == "devices":
         from .audio.devices import list_devices
