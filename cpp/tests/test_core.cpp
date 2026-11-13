@@ -1,5 +1,6 @@
 // C++ mirror of tests/test_core.py (behaviour), plus FFT and C API checks.
 // Bit-level parity with Python is checked in tests/test_native_parity.py.
+#include <cstring>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -172,6 +173,20 @@ static void test_capi_profile_roundtrip() {
   nf_pipeline_destroy(q);
 }
 
+static void test_capi_capture() {
+  nf_pipeline* p = nf_pipeline_create(nullptr);
+  auto x = noise(0.1, 0.05, 4);  // 4800 samples = 10 frames
+  std::vector<float> y(kFrameSize), got(10000);
+  int dropped = -1;
+  CHECK(nf_pipeline_capture_stop(p, got.data(), 10000, &dropped) == 0, "nothing captured before start");
+  nf_pipeline_capture_start(p, 7 * kFrameSize + 100);  // stops by itself when full
+  for (size_t i = 0; i + kFrameSize <= x.size(); i += kFrameSize) nf_pipeline_process(p, &x[i], y.data());
+  int n = nf_pipeline_capture_stop(p, got.data(), 10000, &dropped);
+  CHECK(n == 7 * kFrameSize + 100 && dropped == 0, "captured %d samples, dropped %d", n, dropped);
+  CHECK(std::memcmp(got.data(), x.data(), n * sizeof(float)) == 0, "capture is the raw input");
+  nf_pipeline_destroy(p);
+}
+
 static void test_realtime_cost() {
   Pipeline p;
   auto x = noise(0.01, 0.05, 3);
@@ -193,6 +208,7 @@ int main() {
   test_latency_one_frame();
   test_analyzer_peak();
   test_capi_profile_roundtrip();
+  test_capi_capture();
   test_realtime_cost();
   if (g_fail) {
     std::printf("%d check(s) failed\n", g_fail);

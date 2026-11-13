@@ -74,6 +74,14 @@ NF_API void nf_pipeline_clear_profile(nf_pipeline* p);
 NF_API int nf_pipeline_get_profile(nf_pipeline* p, float* out);
 NF_API void nf_pipeline_set_profile(nf_pipeline* p, const float* profile);
 
+/* Raw input capture (for noise sample contributions). capture_start records the next
+   max_samples input samples into a buffer owned by the pipeline; capture_stop ends it, copies
+   up to max samples into out and returns how many. *dropped (may be NULL) receives the number
+   of frames the audio thread skipped because the UI held the buffer: non-zero = the recording
+   has gaps and should be discarded. The audio thread never blocks on this. */
+NF_API void nf_pipeline_capture_start(nf_pipeline* p, int max_samples);
+NF_API int nf_pipeline_capture_stop(nf_pipeline* p, float* out, int max, int* dropped);
+
 /* Analyzer (UI thread). which = NF_INPUT or NF_OUTPUT. */
 NF_API void nf_pipeline_spectrum_db(nf_pipeline* p, int which, float* db_out /* nf_analyzer_bins() */);
 NF_API float nf_pipeline_level_db(nf_pipeline* p, int which);
