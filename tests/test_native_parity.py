@@ -45,6 +45,34 @@ def test_parity(cfg):
     assert compare(Pipeline(PipelineConfig(**cfg.to_dict())), native.NativePipeline(PipelineConfig(**cfg.to_dict())), x) < TOL
 
 
+EQ_ALL = [{"type": "highpass", "freq": 90, "slope": 24}, {"type": "lowpass", "freq": 9000, "slope": 48},
+          {"type": "peak", "freq": 1000, "gain": 6, "q": 1.4}, {"type": "lowshelf", "freq": 150, "gain": -4},
+          {"type": "highshelf", "freq": 6000, "gain": 3}, {"type": "bandpass", "freq": 800, "q": 0.5},
+          {"type": "notch", "freq": 50, "q": 8}, {"type": "lowpass", "freq": 12000, "q": 2.0, "slope": 12}]
+
+
+@pytest.mark.parametrize("bands", [EQ_ALL[:1], EQ_ALL[1:2], EQ_ALL[2:5], EQ_ALL[5:], EQ_ALL],
+                         ids=["hp24", "lp48", "peak-shelves", "bp-notch-lp12", "all8"])
+def test_eq_parity(bands):
+    cfg = dict(eq_enabled=True, eq_bands=bands, gate_enabled=False)
+    assert compare(Pipeline(PipelineConfig(**cfg)), native.NativePipeline(PipelineConfig(**cfg)), signal()) < TOL
+
+
+def test_eq_parity_live_edits():
+    x = signal(2.0, seed=3)
+
+    def hook(i, py, nat):
+        if i == 20:
+            for p in (py, nat): p.update(eq_enabled=True, eq_bands=EQ_ALL[2:4])
+        if i == 60:     # drag a band: same shape, states carried over
+            for p in (py, nat): p.update(eq_bands=[dict(EQ_ALL[2], freq=1500), EQ_ALL[3]])
+        if i == 100:    # change slope: new shape for that band only
+            for p in (py, nat): p.update(eq_bands=[EQ_ALL[0], EQ_ALL[3]])
+        if i == 150:
+            for p in (py, nat): p.update(eq_enabled=False)
+    assert compare(Pipeline(), native.NativePipeline(), x, hook) < TOL
+
+
 def test_parity_with_learned_profile_and_live_updates():
     x = signal(3.0, seed=1)
 

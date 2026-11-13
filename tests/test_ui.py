@@ -1,4 +1,5 @@
 import json, os
+import numpy as np
 from importlib import resources
 import pytest
 
@@ -241,3 +242,46 @@ def test_autostart_registry_value(monkeypatch):
     assert store["NoiseFilter"] == r'"C:\Program Files\Noise Filter\NoiseFilter.exe" ui --minimized'
     autostart.set_enabled(False); autostart.set_enabled(False)
     assert not autostart.is_enabled()
+
+
+def test_eq_tab_edits_reach_pipeline_and_persist(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    monkeypatch.setattr(W.QApplication, "quit", staticmethod(lambda: None))
+    from noise_filter.ui.main_window import MainWindow
+    w = MainWindow(demo=True)
+    p = w.eq_panel
+    assert not w.pipe.cfg.eq_enabled and w.pipe.cfg.eq_bands == []
+    p.plot.double_clicked.emit(1000.0, 4.0)               # double-click on the graph adds a band
+    assert w.pipe.cfg.eq_enabled and w.pipe.cfg.eq_bands[0]["gain"] == 4.0
+    p.handles[0].setPos(np.log10(2000), -6.0)              # drag the point
+    b = w.pipe.cfg.eq_bands[0]
+    assert abs(b["freq"] - 2000) < 1 and b["gain"] == -6.0
+    p.table.cellWidget(0, 1).setCurrentIndex(4)            # type -> high-pass
+    p.table.cellWidget(0, 5).setCurrentIndex(3)            # 48 dB/oct
+    b = w.pipe.cfg.eq_bands[0]
+    assert b["type"] == "highpass" and b["slope"] == 48
+    assert not p.table.cellWidget(0, 3).isEnabled() and not p.table.cellWidget(0, 4).isEnabled()
+    p.handles[0].wheeled.emit(p.handles[0], 1)             # scroll = Q (no effect needed, must not crash)
+    for _ in range(9):
+        p.add_band()
+    assert len(w.pipe.cfg.eq_bands) == 8 and not p.add_btn.isEnabled()
+    p.remove_band(7)
+    assert len(w.pipe.cfg.eq_bands) == 7 and p.add_btn.isEnabled()
+    i = p.preset_cb.findData("builtin:hum_50")
+    p.preset_cb.setCurrentIndex(i); p._preset_chosen(i)
+    assert [x["freq"] for x in w.pipe.cfg.eq_bands] == [50, 100, 150]
+    p.save_preset("Mine")
+    w.lang_cb.setCurrentIndex(1)                           # retranslate keeps everything
+    assert p.preset_cb.findData("user:Mine") > 0 and p.table.rowCount() == 3
+    w.close()
+
+    w2 = MainWindow(demo=True)
+    assert w2.pipe.cfg.eq_enabled and len(w2.pipe.cfg.eq_bands) == 3
+    assert w2.eq_panel.table.rowCount() == 3 and w2.eq_panel.preset_cb.findData("user:Mine") > 0
+    i = w2.eq_panel.preset_cb.findData("user:Mine")
+    w2.eq_panel.preset_cb.setCurrentIndex(i); w2.eq_panel._delete_preset()
+    assert w2.eq_panel.preset_cb.findData("user:Mine") < 0 and w2.data["eq_presets"] == {}
+    w2.tabs.setCurrentIndex(1); w2._demo_frame(); w2._tick()   # spectrum feeds the EQ graph
+    w2.close()

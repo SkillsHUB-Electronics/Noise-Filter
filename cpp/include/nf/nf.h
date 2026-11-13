@@ -26,7 +26,7 @@ extern "C" {
 #define NF_API __attribute__((visibility("default")))
 #endif
 
-#define NF_API_VERSION 1
+#define NF_API_VERSION 2 /* 2: parametric EQ */
 
 enum { NF_DENOISE_OFF = 0, NF_DENOISE_SPECTRAL = 1, NF_DENOISE_ONNX = 2 };
 enum { NF_INPUT = 0, NF_OUTPUT = 1 };
@@ -40,6 +40,22 @@ typedef struct nf_config {
   float gate_threshold_db;
   float output_gain_db;
 } nf_config;
+
+/* Parametric EQ band (applied after the denoiser). */
+enum {
+  NF_EQ_PEAK = 0, NF_EQ_LOWSHELF = 1, NF_EQ_HIGHSHELF = 2, NF_EQ_LOWPASS = 3,
+  NF_EQ_HIGHPASS = 4, NF_EQ_BANDPASS = 5, NF_EQ_NOTCH = 6
+};
+#define NF_EQ_MAX_BANDS 8
+
+typedef struct nf_eq_band {
+  int type;      /* NF_EQ_* */
+  int on;
+  float freq_hz; /* 20..20000 */
+  float gain_db; /* -24..24, peak and shelf types */
+  float q;       /* 0.1..18 */
+  int slope_db;  /* low/high-pass: 12, 24, 36, 48 dB/octave (Butterworth) */
+} nf_eq_band;
 
 typedef struct nf_pipeline nf_pipeline;
 
@@ -59,6 +75,9 @@ NF_API void nf_pipeline_set_config(nf_pipeline* p, const nf_config* cfg);
 NF_API void nf_pipeline_get_config(nf_pipeline* p, nf_config* cfg);
 /* Advanced spectral parameters (defaults: floor 0.08, smoothing 0.6, rise 0.003). */
 NF_API void nf_pipeline_set_spectral_params(nf_pipeline* p, float floor, float smoothing, float rise);
+
+/* Replace the whole EQ (count <= NF_EQ_MAX_BANDS). Filter states of unchanged bands are kept. */
+NF_API void nf_pipeline_set_eq(nf_pipeline* p, int enabled, const nf_eq_band* bands, int count);
 
 /* Load an ONNX denoiser (UTF-8 path). Returns 0 on success, else writes a message to err. */
 NF_API int nf_pipeline_load_onnx(nf_pipeline* p, const char* path, char* err, int err_len);

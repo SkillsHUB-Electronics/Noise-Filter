@@ -1,7 +1,8 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 import numpy as np
 from .constants import FRAME_SIZE
 from .biquad import HighPass
+from .eq import Equalizer
 from .gate import NoiseGate
 from .spectral import SpectralDenoiser
 from .analyzer import SpectrumAnalyzer
@@ -17,12 +18,14 @@ class PipelineConfig:
     gate_enabled: bool = True
     gate_threshold_db: float = -55.0
     output_gain_db: float = 0.0
+    eq_enabled: bool = False
+    eq_bands: list = field(default_factory=list)   # dicts, see core.eq
 
     def to_dict(self): return asdict(self)
 
 
 class Pipeline:
-    """mic frame -> highpass -> denoise -> gate -> gain, with in/out analyzers."""
+    """mic frame -> highpass -> denoise -> EQ -> gate -> gain, with in/out analyzers."""
 
     def __init__(self, cfg: PipelineConfig | None = None):
         self.cfg = cfg or PipelineConfig()
@@ -47,6 +50,7 @@ class Pipeline:
         self.hp = HighPass(cfg.highpass_hz)
         self.gate = NoiseGate(cfg.gate_threshold_db)
         self.spectral = SpectralDenoiser(strength=cfg.strength)
+        self.eq = Equalizer(cfg.eq_enabled, cfg.eq_bands)
         self.onnx = None
         if cfg.denoise == "onnx" and cfg.onnx_model:
             from .denoiser_onnx import OnnxDenoiser
@@ -61,6 +65,8 @@ class Pipeline:
             self.hp = HighPass(self.cfg.highpass_hz)
         if "strength" in changes:
             self.spectral.strength = self.cfg.strength
+        if "eq_enabled" in changes or "eq_bands" in changes:
+            self.eq.set(self.cfg.eq_enabled, self.cfg.eq_bands)
         if "gate_threshold_db" in changes:
             self.gate.threshold = 10 ** (self.cfg.gate_threshold_db / 20)
         if "onnx_model" in changes and self.cfg.onnx_model:
@@ -83,6 +89,7 @@ class Pipeline:
                 x = self.spectral.process(x)
             elif self.cfg.denoise == "onnx" and self.onnx:
                 x = self.onnx.process(x)
+            x = self.eq.process(x)   # after denoising, so boosted bands do not lift the noise first
             if self.cfg.gate_enabled:
                 x = self.gate.process(x)
             out = x * np.float32(10 ** (self.cfg.output_gain_db / 20))

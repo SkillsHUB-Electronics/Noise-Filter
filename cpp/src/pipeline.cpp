@@ -53,6 +53,10 @@ void Pipeline::process(const float* in, float* out) {
       onnx_->process(a, b);
       std::swap(a, b);
     }
+    if (eq_.active()) {  // after denoising, so boosted bands do not lift the noise first
+      eq_.process(a, b, kFrameSize);
+      std::swap(a, b);
+    }
     if (cfg_.gate_enabled) {
       gate_.process(a, b, kFrameSize);
       std::swap(a, b);

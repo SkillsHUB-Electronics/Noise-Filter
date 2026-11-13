@@ -23,12 +23,18 @@ from .constants import FRAME_SIZE, SAMPLE_RATE
 from .pipeline import PipelineConfig
 
 _MODES = {"off": 0, "spectral": 1, "onnx": 2}
+API_VERSION = 2
 
 
 class _Config(C.Structure):
     _fields_ = [("bypass", C.c_int), ("highpass_hz", C.c_float), ("denoise", C.c_int),
                 ("strength", C.c_float), ("gate_enabled", C.c_int), ("gate_threshold_db", C.c_float),
                 ("output_gain_db", C.c_float)]
+
+
+class _EqBand(C.Structure):
+    _fields_ = [("type", C.c_int), ("on", C.c_int), ("freq_hz", C.c_float), ("gain_db", C.c_float),
+                ("q", C.c_float), ("slope_db", C.c_int)]
 
 
 class _DeviceInfo(C.Structure):
@@ -71,8 +77,12 @@ def load_library():
         except OSError as e:
             _load_error = f"{path}: {e}"
             continue
+        lib.nf_api_version.restype = C.c_int
+        if lib.nf_api_version() != API_VERSION:          # checked first: older builds lack newer symbols
+            _load_error = f"{path}: incompatible nf-core build (API {lib.nf_api_version()}, need {API_VERSION})"
+            continue
         _declare(lib)
-        if lib.nf_api_version() != 1 or lib.nf_frame_size() != FRAME_SIZE:
+        if lib.nf_frame_size() != FRAME_SIZE:
             _load_error = f"{path}: incompatible nf-core build"
             continue
         _lib = lib
@@ -102,6 +112,7 @@ def _declare(lib):
         "nf_pipeline_create": ([C.POINTER(_Config)], P), "nf_pipeline_destroy": ([P], V),
         "nf_pipeline_set_config": ([P, C.POINTER(_Config)], V),
         "nf_pipeline_get_config": ([P, C.POINTER(_Config)], V),
+        "nf_pipeline_set_eq": ([P, I, C.POINTER(_EqBand), I], V),
         "nf_pipeline_set_spectral_params": ([P, C.c_float, C.c_float, C.c_float], V),
         "nf_pipeline_load_onnx": ([P, C.c_char_p, C.c_char_p, I], I),
         "nf_pipeline_process": ([P, F, F], I),
@@ -209,6 +220,7 @@ class NativePipeline:
         self.spectral = NativeSpectral(lib, self._h, self.cfg.strength)
         self.spectral._owner = self
         self._out = np.zeros(FRAME_SIZE, np.float32)
+        self._push_eq()
         if self.cfg.denoise == "onnx" and self.cfg.onnx_model:
             self._load_onnx(self.cfg.onnx_model)
 
@@ -217,9 +229,17 @@ class NativePipeline:
         if self._lib.nf_pipeline_load_onnx(self._h, path.encode("utf-8"), err, 512) != 0:
             raise RuntimeError(err.value.decode("utf-8", "replace"))
 
+    def _push_eq(self):
+        from .eq import TYPE_ID, MAX_BANDS, normalize
+        bands = [normalize(b) for b in self.cfg.eq_bands[:MAX_BANDS]]
+        arr = (_EqBand * max(1, len(bands)))(*[
+            _EqBand(TYPE_ID[b["type"]], int(b["on"]), b["freq"], b["gain"], b["q"], b["slope"]) for b in bands])
+        self._lib.nf_pipeline_set_eq(self._h, int(self.cfg.eq_enabled), arr, len(bands))
+
     def apply(self, cfg: PipelineConfig) -> None:
         self.cfg = cfg
         self._lib.nf_pipeline_set_config(self._h, C.byref(_to_c(cfg)))
+        self._push_eq()
         if cfg.denoise == "onnx" and cfg.onnx_model:
             self._load_onnx(cfg.onnx_model)
 
@@ -227,6 +247,8 @@ class NativePipeline:
         for k, v in changes.items():
             setattr(self.cfg, k, v)
         self._lib.nf_pipeline_set_config(self._h, C.byref(_to_c(self.cfg)))
+        if "eq_enabled" in changes or "eq_bands" in changes:
+            self._push_eq()
         if "onnx_model" in changes and self.cfg.onnx_model:
             self._load_onnx(self.cfg.onnx_model)
 

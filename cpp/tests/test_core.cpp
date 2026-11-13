@@ -187,6 +187,56 @@ static void test_capi_capture() {
   nf_pipeline_destroy(p);
 }
 
+static double tone_gain_db(Equalizer& eq, double f) {
+  auto x = tone(f, 0.5);
+  std::vector<float> y(x.size());
+  for (size_t i = 0; i + kFrameSize <= x.size(); i += kFrameSize) eq.process(&x[i], &y[i], kFrameSize);
+  const size_t h = x.size() / 2;
+  return rms_db(&y[h], x.size() - h) - rms_db(&x[h], x.size() - h);
+}
+
+static void test_eq_responses() {
+  EqBand b;
+  b.type = EqType::Peak; b.freq_hz = 1000; b.gain_db = 6; b.q = 1;
+  Equalizer eq;
+  eq.set(true, &b, 1);
+  CHECK(std::fabs(tone_gain_db(eq, 1000) - 6.0) < 0.1, "peak +6 dB at 1 kHz");
+  for (int slope : {12, 24, 36, 48}) {
+    EqBand lp;
+    lp.type = EqType::LowPass; lp.freq_hz = 1000; lp.slope_db = slope; lp.q = 0.7071;
+    Equalizer e;
+    e.set(true, &lp, 1);
+    CHECK(std::fabs(tone_gain_db(e, 1000) + 3.01) < 0.15, "LP %d: -3 dB at cutoff", slope);
+    const double g2k = tone_gain_db(e, 4000);  // two octaves up: about -2*slope dB
+    CHECK(std::fabs(g2k + 2 * slope) < 2.5, "LP %d: %.1f dB at 4 kHz", slope, g2k);
+  }
+  EqBand n;
+  n.type = EqType::Notch; n.freq_hz = 50; n.q = 8;
+  Equalizer en;
+  en.set(true, &n, 1);
+  CHECK(tone_gain_db(en, 50) < -30, "notch kills 50 Hz hum");
+  CHECK(std::fabs(tone_gain_db(en, 1000)) < 0.1, "notch leaves 1 kHz alone");
+  Equalizer off;
+  off.set(false, &b, 1);
+  CHECK(!off.active(), "disabled EQ is inactive");
+}
+
+static void test_capi_eq() {
+  nf_config c;
+  nf_default_config(&c);
+  c.highpass_hz = 0; c.denoise = NF_DENOISE_OFF; c.gate_enabled = 0;
+  nf_pipeline* p = nf_pipeline_create(&c);
+  nf_eq_band b = {NF_EQ_PEAK, 1, 1000.0f, -12.0f, 1.0f, 12};
+  nf_pipeline_set_eq(p, 1, &b, 1);
+  auto x = tone(1000, 0.3);
+  std::vector<float> y(x.size());
+  for (size_t i = 0; i + kFrameSize <= x.size(); i += kFrameSize) nf_pipeline_process(p, &x[i], &y[i]);
+  const size_t h = x.size() / 2;
+  const double g = rms_db(&y[h], x.size() - h) - rms_db(&x[h], x.size() - h);
+  CHECK(std::fabs(g + 12.0) < 0.2, "EQ via C API: %.2f dB", g);
+  nf_pipeline_destroy(p);
+}
+
 static void test_realtime_cost() {
   Pipeline p;
   auto x = noise(0.01, 0.05, 3);
@@ -209,6 +259,8 @@ int main() {
   test_analyzer_peak();
   test_capi_profile_roundtrip();
   test_capi_capture();
+  test_eq_responses();
+  test_capi_eq();
   test_realtime_cost();
   if (g_fail) {
     std::printf("%d check(s) failed\n", g_fail);
