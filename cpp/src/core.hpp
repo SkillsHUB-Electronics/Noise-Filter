@@ -43,6 +43,36 @@ class HighPass {
   double b_[3], a_[3], z_[2];
 };
 
+// Parametric EQ (port of noise_filter/core/eq.py). Fixed storage: set() and
+// process() never allocate, so set() may run on the audio thread.
+enum class EqType { Peak = 0, LowShelf, HighShelf, LowPass, HighPass, BandPass, Notch };
+constexpr int kEqMaxBands = 8;
+constexpr int kEqMaxSectionsPerBand = 4;
+
+struct EqBand {
+  EqType type = EqType::Peak;
+  bool on = true;
+  double freq_hz = 1000.0, gain_db = 0.0, q = 0.71;
+  int slope_db = 12;  // low/high-pass only: 12, 24, 36 or 48 (Butterworth)
+};
+
+class Equalizer {
+ public:
+  void set(bool enabled, const EqBand* bands, int count);
+  bool active() const { return enabled_ && nsec_ > 0; }
+  void process(const float* x, float* y, int n);
+  // Normalized sections (b0 b1 b2 a1 a2) of one band; returns the count (0 = off).
+  static int design(const EqBand& b, int sample_rate, double out[][5]);
+
+ private:
+  bool enabled_ = false;
+  int nsec_ = 0;
+  int layout_[kEqMaxBands] = {};
+  int nbands_ = 0;
+  double sos_[kEqMaxBands * kEqMaxSectionsPerBand][5] = {};
+  double z_[kEqMaxBands * kEqMaxSectionsPerBand][2] = {};
+};
+
 class NoiseGate {
  public:
   explicit NoiseGate(double threshold_db = -55.0, double attack = 0.5,
@@ -121,13 +151,20 @@ struct Config {
   float output_gain_db = 0.0f;
 };
 
-// mic frame -> highpass -> denoise -> gate -> gain (single-threaded).
+struct EqConfig {
+  bool enabled = false;
+  int count = 0;
+  EqBand bands[kEqMaxBands];
+};
+
+// mic frame -> highpass -> denoise -> EQ -> gate -> gain (single-threaded).
 class Pipeline {
  public:
   explicit Pipeline(const Config& cfg = Config());
   ~Pipeline();
   // Live update: keeps learned profile and filter states (like Python update()).
   void update(const Config& cfg);
+  void set_eq(const EqConfig& eq) { eq_.set(eq.enabled, eq.bands, eq.count); }
   const Config& config() const { return cfg_; }
   // Returns false with err set if ONNX support is not compiled in or load fails.
   bool load_onnx(const std::string& path, std::string* err);
@@ -143,6 +180,7 @@ class Pipeline {
   Config cfg_;
   HighPass hp_;
   NoiseGate gate_;
+  Equalizer eq_;
   SpectralDenoiser spectral_;
   std::unique_ptr<OnnxDenoiser> onnx_;
   std::vector<float> a_, b_;

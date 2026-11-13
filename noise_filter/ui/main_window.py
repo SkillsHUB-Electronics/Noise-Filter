@@ -8,6 +8,7 @@ from .. import contribute, model_update
 from ..i18n import tr
 from . import autostart, settings
 from .spectrum_plot import SpectrumPlot
+from .eq_panel import EqPanel
 from .contribute_dialog import ContributeDialog, UploadWorker
 
 LANGS = [("en", "English"), ("id", "Bahasa Indonesia")]
@@ -122,8 +123,11 @@ class MainWindow(W.QMainWindow):
         self.refresh_btn.clicked.connect(self.refresh_devices)
         self.start_btn.toggled.connect(self.toggle_engine)
 
-        # analyzers
-        plots = W.QHBoxLayout()
+        # analyzers and equalizer share the middle as tabs
+        self.tabs = W.QTabWidget()
+        spec_tab = W.QWidget()
+        plots = W.QHBoxLayout(spec_tab)
+        plots.setContentsMargins(4, 4, 4, 4)
         freqs = self.pipe.in_analyzer.freqs
         self.in_plot = SpectrumPlot("", "#e0a030", freqs)
         self.out_plot = SpectrumPlot("", "#30b070", freqs)
@@ -132,7 +136,16 @@ class MainWindow(W.QMainWindow):
             col = W.QVBoxLayout(); col.addWidget(p, 1)
             bar = level_bar(); setattr(self, bar_name, bar); col.addWidget(bar)
             plots.addLayout(col)
-        root.addLayout(plots, 1)
+        self.tabs.addTab(spec_tab, "")
+        cfg0 = self.pipe.cfg
+        self.eq_panel = EqPanel(freqs, cfg0.eq_enabled, cfg0.eq_bands, self.data.get("eq_presets", {}), self.lang)
+        self.eq_panel.layout().setContentsMargins(4, 4, 4, 4)
+        self.eq_panel.changed.connect(lambda on, bands: self._set(eq_enabled=on, eq_bands=bands))
+        self.eq_panel.presets_changed.connect(self._eq_presets_changed)
+        self.tabs.addTab(self.eq_panel, "")
+        self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % 2)
+        self.tabs.currentChanged.connect(lambda _: self._save())
+        root.addWidget(self.tabs, 1)
 
         bottom = W.QHBoxLayout()
         root.addLayout(bottom)
@@ -281,6 +294,8 @@ class MainWindow(W.QMainWindow):
         self.dev_box.setTitle(t("device.title"))
         self.tools_box.setTitle(t("tools.title"))
         self.set_box.setTitle(t("settings.title"))
+        self.tabs.setTabText(0, t("tab.analyzer")); self.tabs.setTabText(1, t("tab.eq"))
+        self.eq_panel.retranslate(self.lang)
         self.lang_lbl.setText(t("settings.lang"))
         self.tray_cb.setText(t("settings.tray")); self.tray_cb.setToolTip(t("settings.tray_tip"))
         self.autostart_cb.setText(t("settings.autostart"))
@@ -377,11 +392,16 @@ class MainWindow(W.QMainWindow):
         self.data["in_dev"] = self.in_cb.currentData()
         self.data["out_dev"] = self.out_cb.currentData()
         self.data["exclusive"] = self.excl.isChecked()
+        self.data["tab"] = self.tabs.currentIndex()
         self.data["close_to_tray"] = self.tray_cb.isChecked()
         self.data["resume"] = self.resume_cb.isChecked()
         self.data["geometry"] = bytes(self.saveGeometry().toBase64()).decode("ascii")
         try: settings.save(self.data)
         except OSError: pass
+
+    def _eq_presets_changed(self, presets: dict):
+        self.data["eq_presets"] = presets
+        self._save()
 
     def _lang_changed(self, _):
         self.lang = self.lang_cb.currentData(); self.retranslate(); self._save()
@@ -502,6 +522,8 @@ class MainWindow(W.QMainWindow):
         i_db, o_db = p.in_analyzer.spectrum_db(), p.out_analyzer.spectrum_db()
         self.in_plot.set_data(i_db)
         self.out_plot.set_data(o_db, ref=i_db)
+        if self.tabs.currentIndex() == 1:
+            self.eq_panel.set_spectrum(o_db)
         self.in_bar.setValue(int(max(-80, p.in_analyzer.level_db())))
         self.out_bar.setValue(int(max(-80, p.out_analyzer.level_db())))
         backend = tr("engine.backend", self.lang).format(name="C++" if self.native else "Python")

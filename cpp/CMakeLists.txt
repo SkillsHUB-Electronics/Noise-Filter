@@ -17,6 +17,7 @@ endif()
 
 set(NF_SOURCES
   src/dsp.cpp
+  src/eq.cpp
   src/pipeline.cpp
   src/onnx_denoiser.cpp
   src/capi.cpp

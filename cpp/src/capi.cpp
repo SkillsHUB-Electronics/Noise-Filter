@@ -65,7 +65,8 @@ struct nf_pipeline {
   Config ui_cfg;  // what the UI last set
   Config pending_cfg;
   bool cfg_dirty = false, learn_start = false, learn_finish = false, clear_profile = false;
-  bool profile_dirty = false, spectral_dirty = false;
+  bool profile_dirty = false, spectral_dirty = false, eq_dirty = false;
+  EqConfig pending_eq;
   float sp_floor = 0.08f, sp_smoothing = 0.6f, sp_rise = 0.003f;
   std::vector<float> pending_profile;
   OnnxDenoiser* pending_onnx = nullptr;  // loaded on the UI thread, swapped in on the audio thread
@@ -89,6 +90,10 @@ struct nf_pipeline {
     if (cfg_dirty) {
       pipe.update(pending_cfg);
       cfg_dirty = false;
+    }
+    if (eq_dirty) {  // a few trig calls, no allocation
+      pipe.set_eq(pending_eq);
+      eq_dirty = false;
     }
     if (spectral_dirty) {
       pipe.spectral().floor = sp_floor;
@@ -168,6 +173,24 @@ void nf_pipeline_set_config(nf_pipeline* p, const nf_config* cfg) {
 void nf_pipeline_get_config(nf_pipeline* p, nf_config* cfg) {
   std::lock_guard<std::mutex> g(p->ctl);
   *cfg = to_c(p->ui_cfg);
+}
+
+void nf_pipeline_set_eq(nf_pipeline* p, int enabled, const nf_eq_band* bands, int count) {
+  EqConfig e;
+  e.enabled = enabled != 0;
+  e.count = bands ? std::max(0, std::min(count, kEqMaxBands)) : 0;
+  for (int i = 0; i < e.count; ++i) {
+    const nf_eq_band& b = bands[i];
+    e.bands[i].type = static_cast<EqType>(std::min(6, std::max(0, b.type)));
+    e.bands[i].on = b.on != 0;
+    e.bands[i].freq_hz = b.freq_hz;
+    e.bands[i].gain_db = b.gain_db;
+    e.bands[i].q = b.q;
+    e.bands[i].slope_db = b.slope_db;
+  }
+  std::lock_guard<std::mutex> g(p->ctl);
+  p->pending_eq = e;
+  p->eq_dirty = true;
 }
 
 void nf_pipeline_set_spectral_params(nf_pipeline* p, float floor, float smoothing, float rise) {
