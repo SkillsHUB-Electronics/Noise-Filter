@@ -112,6 +112,45 @@ def test_contribution_offer_flow(tmp_path, monkeypatch):
     w.close()
 
 
+def test_send_noise_file_flow(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    import numpy as np
+    from noise_filter import contribute
+    from noise_filter.ui import main_window as mw
+    monkeypatch.setattr(contribute, "enabled", lambda: True)
+    w = mw.MainWindow(demo=True)
+    assert not w.contrib_file.isHidden()
+    sent, boxes = [], []
+    monkeypatch.setattr(w._uploader, "run", lambda fn, *a: sent.append((fn, a)))
+    monkeypatch.setattr(W.QMessageBox, "information", lambda *a: boxes.append(a[2]))
+    clip = np.zeros(48000 * 10, np.float32)
+
+    def fake_exec(dlg):
+        assert dlg.never_btn.isHidden() and not dlg.own.isHidden()
+        dlg.consent.setChecked(True)
+        assert not dlg.send_btn.isEnabled()                 # "I recorded this myself" is required too
+        dlg.own.setChecked(True); dlg.cat.setCurrentIndex(2); dlg._send()
+        return W.QDialog.Accepted
+    monkeypatch.setattr(mw.ContributeDialog, "exec", fake_exec)
+    w._offer_file(("room.mp3", [clip, clip], {"speech": 1}))
+    assert sent[0][0] is contribute.upload_clips and len(sent[0][1][0]) == 2 and sent[0][1][1] == "keyboard"
+
+    w._offer_file(("song.mp3", [], {"speech": 3}))           # nothing usable: explained, nothing sent
+    assert len(sent) == 1 and boxes and tr_contains(boxes[-1], "voices")
+
+    monkeypatch.setattr(W.QFileDialog, "getOpenFileName", lambda *a, **k: (str(tmp_path / "bad.wav"), ""))
+    (tmp_path / "bad.wav").write_bytes(b"not audio")
+    w._contribute_file()
+    assert "cannot be read" in boxes[-1] and w.contrib_file.isEnabled()
+    w.close()
+
+
+def tr_contains(text, word):
+    return word in text
+
+
 def test_layout_fits_small_screens(tmp_path, monkeypatch):
     """Long device names and translations must not push widgets on top of each other."""
     monkeypatch.setenv("APPDATA", str(tmp_path))

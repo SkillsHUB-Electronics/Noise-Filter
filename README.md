@@ -30,6 +30,11 @@ and the user's own presets. Since 0.5.1 several presets can be ticked at once an
 Dynamics (0.5.0): soft-knee compressor (threshold, ratio, attack, release, makeup) and a zero-latency peak limiter
 (on by default at -1 dBFS) in C++ (`cpp/src/dynamics.cpp`) and Python (`core/dynamics.py`), with a transfer-curve
 graph and gain-reduction meters in the "Compressor & limiter" tab.
+Noise samples (F3, 0.6.0): after "Learn noise" users can share the recording, and Settings → "Send a noise file…"
+takes a file they recorded themselves (WAV, MP3, M4A, FLAC, OGG; up to 10 min, cut into at most five 10 s clips; every
+clip is voice-checked on the PC). The Worker in `cloud/worker/` stores them in R2; a daily workflow re-checks them into
+`review/`, and the developer accepts or rejects each one on the review page (`/review` on the Worker, password from the
+GitHub secret `REVIEW_PASSWORD`). Only accepted samples are used for training. See [cloud/worker/README.md](cloud/worker/README.md).
 
 ## Low latency design
 - Fixed 480-sample frames (10 ms). Spectral denoiser adds 1 frame of algorithmic delay.

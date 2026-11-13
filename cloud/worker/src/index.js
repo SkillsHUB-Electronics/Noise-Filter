@@ -7,10 +7,13 @@
  * sample can reach training. No IP address or other personal data is stored.
  *
  *   POST   /v1/samples                 body: WAV (48 kHz, mono, 16-bit PCM, 2-10 s)
- *                                      header X-NF-Meta: JSON {install_id, category, app_version, os, consent}
+ *                                      header X-NF-Meta: JSON {install_id, category, app_version, os, consent,
+ *                                      source: "mic" (Learn noise recording, default) | "file" (user's own file)}
  *   DELETE /v1/samples?install_id=...  removes every sample of that installation
  *   GET    /v1/health
+ *   /review, /v1/review/*              developer review of screened samples (see review.js)
  */
+import { handleReview } from "./review.js";
 
 export const MAX_BYTES = 2 * 1024 * 1024;
 export const SAMPLE_RATE = 48000;
@@ -18,7 +21,8 @@ export const MIN_SECONDS = 2;
 export const MAX_SECONDS = 10;
 export const CATEGORIES = ["fan_ac", "traffic", "keyboard", "crowd", "machine", "rain_wind", "other"];
 export const CONSENT = "cc0-v1";
-export const PREFIXES = ["incoming/", "accepted/", "rejected/"];
+export const PREFIXES = ["incoming/", "review/", "accepted/", "rejected/"];
+export const SOURCES = ["mic", "file"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,3}([.-][0-9A-Za-z.]{1,20})?$/;
 
@@ -58,7 +62,9 @@ export function checkMeta(raw) {
   if (!VERSION.test(String(m.app_version))) throw new Error("bad app_version");
   if (!["windows", "android", "linux", "macos", "ios"].includes(m.os)) throw new Error("bad os");
   if (m.consent !== CONSENT) throw new Error("consent missing");
-  return { install_id: m.install_id, category: m.category, app_version: m.app_version, os: m.os, consent: m.consent };
+  const source = m.source ?? "mic";
+  if (!SOURCES.includes(source)) throw new Error("bad source");
+  return { install_id: m.install_id, category: m.category, app_version: m.app_version, os: m.os, consent: m.consent, source };
 }
 
 async function upload(request, env) {
@@ -110,6 +116,8 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/v1/health") return json(200, { ok: true });
+    const review = await handleReview(request, env, url);
+    if (review) return review;
     if (url.pathname === "/v1/samples") {
       if (request.method === "POST") return upload(request, env);
       if (request.method === "DELETE") return remove(url, env);

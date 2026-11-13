@@ -1,11 +1,17 @@
 """Screen user-contributed noise samples in R2 and fetch the accepted ones for training (F3).
 
-    python -m training.contrib_samples --out data/contrib --base-noise data/noise
+    python -m training.contrib_samples --out data/contrib --base-noise data/noise   # training
+    python -m training.contrib_samples --screen-only                                # daily screening
 
 Bucket layout (written by cloud/worker):
     incoming/<install_id>/<date>-<uuid>.wav    new, unscreened
-    accepted/<install_id>/<date>-<uuid>.wav    passed screening, used for training
-    rejected/<install_id>/<date>-<uuid>.wav    failed screening (reason in metadata), deleted after 30 days
+    review/<install_id>/<date>-<uuid>.wav      passed screening, waits for the developer (/review page)
+    accepted/<install_id>/<date>-<uuid>.wav    accepted by the developer, used for training
+    rejected/<install_id>/<date>-<uuid>.wav    failed screening or rejected by the developer (reason in
+                                               metadata), deleted after 30 days
+
+Only accepted/ reaches training, and only a person can put a sample there: an accepted/ sample
+without the "reviewed" mark (from before the review step existed) is sent back to review/.
 
 Screening repeats the app's checks (format, length, clipping, silence, voice detection with the
 heuristic AND the current AI model), drops exact duplicates and caps how many samples one
@@ -84,15 +90,27 @@ def move(s3, key: str, dest_prefix: str, meta: dict):
     return new
 
 
+def requeue_unreviewed(s3) -> int:
+    """accepted/ samples nobody reviewed (screened before the review step existed) go back to review/."""
+    n = 0
+    for o in list(list_keys(s3, "accepted/")):
+        meta = dict(s3.head_object(Bucket=BUCKET, Key=o["Key"]).get("Metadata", {}))
+        if not meta.get("reviewed"):
+            move(s3, o["Key"], "review/", meta)
+            n += 1
+    return n
+
+
 def process_incoming(s3, model_path: str | None) -> dict:
-    """Screen incoming/ into accepted/ or rejected/. Returns counts."""
+    """Screen incoming/ into review/ (waits for the developer) or rejected/. Returns counts."""
     seen = set()
     per_day = defaultdict(int)
-    for o in list_keys(s3, "accepted/"):                 # existing hashes and daily counts
-        head = s3.head_object(Bucket=BUCKET, Key=o["Key"])
-        if "sha256" in head.get("Metadata", {}):
-            seen.add(head["Metadata"]["sha256"])
-        per_day[(install_of(o["Key"]), day_of(o["Key"]))] += 1
+    for prefix in ("review/", "accepted/"):              # existing hashes and daily counts
+        for o in list_keys(s3, prefix):
+            head = s3.head_object(Bucket=BUCKET, Key=o["Key"])
+            if "sha256" in head.get("Metadata", {}):
+                seen.add(head["Metadata"]["sha256"])
+            per_day[(install_of(o["Key"]), day_of(o["Key"]))] += 1
     stats = defaultdict(int)
     for o in sorted(list_keys(s3, "incoming/"), key=lambda o: o["Key"]):
         key = o["Key"]
@@ -107,11 +125,11 @@ def process_incoming(s3, model_path: str | None) -> dict:
             ok, reason = False, "daily cap"
         meta.update(sha256=digest, screened=datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     reason=reason)
-        move(s3, key, "accepted/" if ok else "rejected/", meta)
+        move(s3, key, "review/" if ok else "rejected/", meta)
         if ok:
             seen.add(digest)
             per_day[slot] += 1
-        stats["accepted" if ok else f"rejected:{reason}"] += 1
+        stats["to_review" if ok else f"rejected:{reason}"] += 1
     return dict(stats)
 
 
@@ -152,16 +170,23 @@ def main(argv=None):
     ap.add_argument("--base-noise", help="base noise folder: the contributed pool is capped at its size")
     ap.add_argument("--model", help="ONNX model for the voice check (default: the bundled model)")
     ap.add_argument("--no-screen", action="store_true", help="only fetch accepted/")
+    ap.add_argument("--screen-only", action="store_true", help="screen incoming/ into review/, fetch nothing")
     a = ap.parse_args(argv)
     s3 = client()
     model = a.model
-    if not model:
+    if not model and not a.no_screen:
         from noise_filter.model_update import bundled_model
         m = bundled_model()
         model = str(m["path"]) if m else None
-    report = {"screening": {} if a.no_screen else process_incoming(s3, model)}
+    report = {"requeued_unreviewed": requeue_unreviewed(s3),
+              "screening": {} if a.no_screen else process_incoming(s3, model)}
     report["purged_rejected"] = purge_rejected(s3)
+    report["waiting_for_review"] = sum(1 for _ in list_keys(s3, "review/"))
     keys = [o["Key"] for o in list_keys(s3, "accepted/")]
+    if a.screen_only:
+        report["accepted_total"] = len(keys)
+        print(json.dumps(report, indent=2))
+        return report
     limit = count_audio(a.base_noise) or len(keys)
     chosen = select_for_training(keys, limit)
     out = Path(a.out)
