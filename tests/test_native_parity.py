@@ -58,6 +58,21 @@ def test_eq_parity(bands):
     assert compare(Pipeline(PipelineConfig(**cfg)), native.NativePipeline(PipelineConfig(**cfg)), signal()) < TOL
 
 
+@pytest.mark.parametrize("cfg", [
+    dict(comp_enabled=True),
+    dict(comp_enabled=True, comp_threshold_db=-40.0, comp_ratio=10.0, comp_attack_ms=1.0, comp_release_ms=50.0,
+         comp_makeup_db=8.0, output_gain_db=6.0),
+    dict(output_gain_db=18.0, limiter_ceiling_db=-6.0),
+    dict(comp_enabled=True, limiter_enabled=False, comp_ratio=1.5, comp_makeup_db=3.0),
+], ids=["comp-default", "comp-hard+limit", "limiter-only", "comp-gentle"])
+def test_dynamics_parity(cfg):
+    x = signal() * 3
+    py, nat = Pipeline(PipelineConfig(**cfg)), native.NativePipeline(PipelineConfig(**cfg))
+    assert compare(py, nat, x) < TOL
+    gp, gn = py.dynamics_gr_db(), nat.dynamics_gr_db()
+    assert abs(gp[0] - gn[0]) < 1e-3 and abs(gp[1] - gn[1]) < 1e-3
+
+
 def test_eq_parity_live_edits():
     x = signal(2.0, seed=3)
 

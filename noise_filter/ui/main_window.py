@@ -9,6 +9,7 @@ from ..i18n import tr
 from . import autostart, settings
 from .spectrum_plot import SpectrumPlot
 from .eq_panel import EqPanel
+from .dynamics_panel import DynamicsPanel
 from .contribute_dialog import ContributeDialog, UploadWorker
 
 LANGS = [("en", "English"), ("id", "Bahasa Indonesia")]
@@ -125,9 +126,12 @@ class MainWindow(W.QMainWindow):
 
         # analyzers and equalizer share the middle as tabs
         self.tabs = W.QTabWidget()
+        # every tab owns its controls: spectra + filter, EQ, dynamics, settings
         spec_tab = W.QWidget()
-        plots = W.QHBoxLayout(spec_tab)
-        plots.setContentsMargins(4, 4, 4, 4)
+        self._spec_lay = W.QVBoxLayout(spec_tab)
+        self._spec_lay.setContentsMargins(4, 4, 4, 4)
+        plots = W.QHBoxLayout()
+        self._spec_lay.addLayout(plots, 1)
         freqs = self.pipe.in_analyzer.freqs
         self.in_plot = SpectrumPlot("", "#e0a030", freqs)
         self.out_plot = SpectrumPlot("", "#30b070", freqs)
@@ -143,12 +147,10 @@ class MainWindow(W.QMainWindow):
         self.eq_panel.changed.connect(lambda on, bands: self._set(eq_enabled=on, eq_bands=bands))
         self.eq_panel.presets_changed.connect(self._eq_presets_changed)
         self.tabs.addTab(self.eq_panel, "")
-        self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % 2)
-        self.tabs.currentChanged.connect(lambda _: self._save())
+        self.dyn_panel = DynamicsPanel(self.pipe.cfg, self.lang)
+        self.dyn_panel.changed.connect(lambda kw: self._set(**kw))
+        self.tabs.addTab(self.dyn_panel, "")
         root.addWidget(self.tabs, 1)
-
-        bottom = W.QHBoxLayout()
-        root.addLayout(bottom)
 
         # filter controls: label | slider | value, one row each
         box = W.QGroupBox(); self.ctrl_box = box
@@ -168,39 +170,33 @@ class MainWindow(W.QMainWindow):
         val_w = self.fontMetrics().horizontalAdvance("-100 dB") + 8
         for v in self.vals.values():
             v.setMinimumWidth(val_w); v.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-        g.addWidget(self.bypass, 0, 0, 1, 3)
-        g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
-        for r, (lbl, s, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
-                                         (self.lbls["hp"], self.hp, "hp"),
-                                         (self.gate_on, self.gate_th, "gate"),
-                                         (self.lbls["gain"], self.gain, "gain")), start=2):
-            g.addWidget(lbl, r, 0); g.addWidget(s, r, 1); g.addWidget(self.vals[k], r, 2)
-        g.setColumnStretch(1, 1)
-        bottom.addWidget(box, 3)
-
-        # tools: learn noise, model update, noise-sample sharing
-        self.tools_box = W.QGroupBox()
-        tl = W.QVBoxLayout(self.tools_box)
         self.learn_btn, self.train_btn = W.QPushButton(), W.QPushButton()
         self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
+        # one column: label | control | value, every slider the same width, in signal-chain order
+        top = W.QHBoxLayout(); top.addWidget(self.bypass); top.addStretch(1); top.addWidget(self.learn_btn)
+        g.addLayout(top, 0, 0, 1, 3)
+        g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
+        for r, (lbl, sl_, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
+                                           (self.lbls["hp"], self.hp, "hp"),
+                                           (self.gate_on, self.gate_th, "gate"),
+                                           (self.lbls["gain"], self.gain, "gain")), start=2):
+            g.addWidget(lbl, r, 0); g.addWidget(sl_, r, 1); g.addWidget(self.vals[k], r, 2)
+        g.setColumnStretch(1, 1)
+        g.setVerticalSpacing(4)
+        self._spec_lay.addWidget(box)
+
         # F3: offer to send the 'Learn noise' recording (only when the intake service is configured)
         self.contrib_cb, self.contrib_del = W.QCheckBox(), W.QPushButton()
         self.contrib_cb.setChecked(contribute.load_state().get("ask", True))
         self.contrib_cb.toggled.connect(lambda v: contribute.save_state(ask=v))
         self.contrib_del.clicked.connect(self._delete_samples)
-        for w in (self.learn_btn, self.train_btn, self.contrib_cb, self.contrib_del):
-            tl.addWidget(w)
-        tl.addStretch(1)
-        bottom.addWidget(self.tools_box, 2)
         self._sample_signal = _SampleSignal()
         self._sample_signal.ready.connect(self._offer_sample)
         self._uploader = UploadWorker()
         self._uploader.done.connect(self._upload_done)
         self._capturing = False
 
-        # app settings: language, tray, Windows startup, resume
-        self.set_box = W.QGroupBox()
-        sl = W.QGridLayout(self.set_box)
+        # Settings tab: language; background & startup; AI model & noise samples
         self.lang_lbl = W.QLabel()
         self.lang_cb = W.QComboBox()
         for code, name in LANGS: self.lang_cb.addItem(name, code)
@@ -211,11 +207,34 @@ class MainWindow(W.QMainWindow):
         self.autostart_cb = W.QCheckBox(); self.autostart_cb.setChecked(autostart.is_enabled())
         self.autostart_cb.setEnabled(autostart.supported())
         self.resume_cb = W.QCheckBox(); self.resume_cb.setChecked(bool(self.data.get("resume", True)))
-        sl.addWidget(self.lang_lbl, 0, 0); sl.addWidget(self.lang_cb, 0, 1)
-        for r, w in enumerate((self.tray_cb, self.autostart_cb, self.resume_cb), start=1):
-            sl.addWidget(w, r, 0, 1, 2)
-        sl.setRowStretch(4, 1); sl.setColumnStretch(1, 1)
-        bottom.addWidget(self.set_box, 2)
+        page = W.QWidget()
+        pl = W.QVBoxLayout(page)
+        self.gen_box, self.bg_box, self.ai_box = W.QGroupBox(), W.QGroupBox(), W.QGroupBox()
+        gl = W.QHBoxLayout(self.gen_box)
+        self.lang_cb.setMinimumWidth(200)
+        gl.addWidget(self.lang_lbl); gl.addWidget(self.lang_cb); gl.addStretch(1)
+        bl = W.QVBoxLayout(self.bg_box)
+        self.set_notes = {}
+        for w in (self.tray_cb, self.autostart_cb, self.resume_cb):
+            note = W.QLabel(); note.setWordWrap(True)
+            note.setStyleSheet("color: palette(placeholder-text); margin-left: 24px; margin-bottom: 4px;")
+            bl.addWidget(w); bl.addWidget(note)
+            self.set_notes[w] = note
+        al = W.QVBoxLayout(self.ai_box)
+        row = W.QHBoxLayout(); row.addWidget(self.train_btn); row.addStretch(1)
+        al.addLayout(row)
+        al.addWidget(self.contrib_cb)
+        row = W.QHBoxLayout(); row.addWidget(self.contrib_del); row.addStretch(1)
+        al.addLayout(row)
+        # one column of equally wide boxes, in order of how often they are needed
+        for b in (self.gen_box, self.bg_box, self.ai_box):
+            b.setMaximumWidth(760)
+            pl.addWidget(b)
+        pl.addStretch(1)
+        self.set_box = page
+        self.tabs.addTab(self.set_box, "")
+        self.tabs.setCurrentIndex(int(self.data.get("tab", 0)) % self.tabs.count())
+        self.tabs.currentChanged.connect(lambda _: self._save())
         self.tray_cb.toggled.connect(lambda _: self._save())
         self.resume_cb.toggled.connect(lambda _: self._save())
         self.autostart_cb.toggled.connect(self._autostart_changed)
@@ -292,15 +311,21 @@ class MainWindow(W.QMainWindow):
         t = lambda k: tr(k, self.lang)
         self.setWindowTitle(t("app.title"))
         self.dev_box.setTitle(t("device.title"))
-        self.tools_box.setTitle(t("tools.title"))
-        self.set_box.setTitle(t("settings.title"))
-        self.tabs.setTabText(0, t("tab.analyzer")); self.tabs.setTabText(1, t("tab.eq"))
+        amp = lambda k: t(k).replace("&", "&&")   # a literal "&", not a keyboard shortcut
+        self.gen_box.setTitle(t("settings.general")); self.bg_box.setTitle(amp("settings.background"))
+        self.ai_box.setTitle(amp("settings.ai"))
+        self.tabs.setTabText(3, t("settings.title"))
+        self.tabs.setTabText(0, t("tab.analyzer").replace("&", "&&")); self.tabs.setTabText(1, t("tab.eq"))
+        self.tabs.setTabText(2, t("tab.dynamics").replace("&", "&&"))   # "&" is not a shortcut
         self.eq_panel.retranslate(self.lang)
+        self.dyn_panel.retranslate(self.lang)
         self.lang_lbl.setText(t("settings.lang"))
         self.tray_cb.setText(t("settings.tray")); self.tray_cb.setToolTip(t("settings.tray_tip"))
         self.autostart_cb.setText(t("settings.autostart"))
         self.autostart_cb.setToolTip(t("settings.autostart_tip") if autostart.supported() else t("settings.autostart_na"))
         self.resume_cb.setText(t("settings.resume")); self.resume_cb.setToolTip(t("settings.resume_tip"))
+        for w in self.set_notes:
+            self.set_notes[w].setText(w.toolTip())
         self.in_lbl.setText(t("device.input")); self.out_lbl.setText(t("device.output"))
         self.refresh_btn.setText(t("device.refresh"))
         self.excl.setText(t("device.exclusive"))
@@ -524,6 +549,8 @@ class MainWindow(W.QMainWindow):
         self.out_plot.set_data(o_db, ref=i_db)
         if self.tabs.currentIndex() == 1:
             self.eq_panel.set_spectrum(o_db)
+        elif self.tabs.currentIndex() == 2 and hasattr(p, "dynamics_gr_db"):
+            self.dyn_panel.set_meters(p.in_analyzer.level_db(), *p.dynamics_gr_db())
         self.in_bar.setValue(int(max(-80, p.in_analyzer.level_db())))
         self.out_bar.setValue(int(max(-80, p.out_analyzer.level_db())))
         backend = tr("engine.backend", self.lang).format(name="C++" if self.native else "Python")

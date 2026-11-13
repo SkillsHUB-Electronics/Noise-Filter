@@ -4,7 +4,7 @@ Realtime, low-latency microphone noise filter for Windows with input/output freq
 and an AI (ONNX) denoiser that can be trained offline. English is the primary language, Bahasa Indonesia supported.
 
 ```
-Mic (any input device) -> [highpass -> denoise -> EQ -> gate -> gain] -> virtual mic (VB-Cable) -> TeamTalk / Meet / ...
+Mic (any input device) -> [highpass -> denoise -> EQ -> gate -> compressor -> gain -> limiter] -> virtual mic (VB-Cable) -> TeamTalk / Meet / ...
                               \-> input & output spectrum analyzers
 ```
 
@@ -26,6 +26,9 @@ Equalizer (0.5.0): up to 8 parametric bands after the denoiser (peak, low/high s
 (`core/eq.py`), checked sample-by-sample against each other. The Equalizer tab draws the curve over the output spectrum
 with draggable points (scroll = Q), a band table, built-in presets (clearer voice, 50/60 Hz hum, telephone, podcast...)
 and the user's own presets.
+Dynamics (0.5.0): soft-knee compressor (threshold, ratio, attack, release, makeup) and a zero-latency peak limiter
+(on by default at -1 dBFS) in C++ (`cpp/src/dynamics.cpp`) and Python (`core/dynamics.py`), with a transfer-curve
+graph and gain-reduction meters in the "Compressor & limiter" tab.
 
 ## Low latency design
 - Fixed 480-sample frames (10 ms). Spectral denoiser adds 1 frame of algorithmic delay.

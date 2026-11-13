@@ -24,6 +24,14 @@ Config to_cpp(const nf_config& c) {
   o.gate_enabled = c.gate_enabled != 0;
   o.gate_threshold_db = c.gate_threshold_db;
   o.output_gain_db = c.output_gain_db;
+  o.comp_enabled = c.comp_enabled != 0;
+  o.comp_threshold_db = c.comp_threshold_db;
+  o.comp_ratio = c.comp_ratio;
+  o.comp_attack_ms = c.comp_attack_ms;
+  o.comp_release_ms = c.comp_release_ms;
+  o.comp_makeup_db = c.comp_makeup_db;
+  o.limiter_enabled = c.limiter_enabled != 0;
+  o.limiter_ceiling_db = c.limiter_ceiling_db;
   return o;
 }
 
@@ -36,6 +44,14 @@ nf_config to_c(const Config& c) {
   o.gate_enabled = c.gate_enabled;
   o.gate_threshold_db = c.gate_threshold_db;
   o.output_gain_db = c.output_gain_db;
+  o.comp_enabled = c.comp_enabled;
+  o.comp_threshold_db = c.comp_threshold_db;
+  o.comp_ratio = c.comp_ratio;
+  o.comp_attack_ms = c.comp_attack_ms;
+  o.comp_release_ms = c.comp_release_ms;
+  o.comp_makeup_db = c.comp_makeup_db;
+  o.limiter_enabled = c.limiter_enabled;
+  o.limiter_ceiling_db = c.limiter_ceiling_db;
   return o;
 }
 
@@ -80,6 +96,9 @@ struct nf_pipeline {
   size_t cap_pos = 0;
   std::atomic<bool> capturing{false};
   std::atomic<int> cap_dropped{0};
+
+  // ---- meters, written by the audio thread ----
+  std::atomic<float> comp_gr{0.0f}, lim_gr{0.0f};
 
   // ---- analyzers, guarded by ana ----
   std::mutex ana;
@@ -230,6 +249,8 @@ int nf_pipeline_process(nf_pipeline* p, const float* in, float* out) {
   float in_copy[kFrameSize];
   std::memcpy(in_copy, in, sizeof(in_copy));
   p->pipe.process(in_copy, out);
+  p->comp_gr.store(static_cast<float>(p->pipe.comp_gr_db()), std::memory_order_relaxed);
+  p->lim_gr.store(static_cast<float>(p->pipe.limiter_gr_db()), std::memory_order_relaxed);
   if (p->capturing.load(std::memory_order_relaxed)) {  // cheap pre-check; re-checked under the lock
     if (p->cap.try_lock()) {
       if (p->capturing) {
@@ -249,6 +270,11 @@ int nf_pipeline_process(nf_pipeline* p, const float* in, float* out) {
     p->ana.unlock();
   }
   return 0;
+}
+
+void nf_pipeline_get_dynamics(nf_pipeline* p, float* comp_gr_db, float* limiter_gr_db) {
+  if (comp_gr_db) *comp_gr_db = p->comp_gr.load(std::memory_order_relaxed);
+  if (limiter_gr_db) *limiter_gr_db = p->lim_gr.load(std::memory_order_relaxed);
 }
 
 void nf_pipeline_learn_start(nf_pipeline* p) {

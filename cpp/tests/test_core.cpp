@@ -116,6 +116,7 @@ static void test_learned_profile() {
 static void test_latency_one_frame() {
   Config c;
   c.gate_enabled = false;
+  c.limiter_enabled = false;  // the impulse peaks at 0 dBFS
   c.highpass_hz = 0;
   Pipeline p(c);
   p.spectral().strength = 0.0f;
@@ -237,8 +238,40 @@ static void test_capi_eq() {
   nf_pipeline_destroy(p);
 }
 
+static void test_compressor_and_limiter() {
+  // static curve: below threshold untouched, far above it divided by the ratio
+  CHECK(std::fabs(Compressor::static_curve_db(-40, -20, 4) + 40) < 1e-9, "below threshold");
+  CHECK(std::fabs(Compressor::static_curve_db(0, -20, 4) + 15) < 1e-9, "above threshold: -20 + 20/4");
+  Compressor c;
+  c.set(-20, 4, 5, 100, 0);
+  auto loud = tone(1000, 0.5, 1.0);  // peaks 0 dBFS
+  std::vector<float> y(loud.size());
+  for (size_t i = 0; i + kFrameSize <= loud.size(); i += kFrameSize) c.process(&loud[i], &y[i], kFrameSize);
+  const size_t h = loud.size() / 2;
+  const double red = rms_db(&loud[h], loud.size() - h) - rms_db(&y[h], loud.size() - h);
+  CHECK(red > 8 && red < 16, "compressor reduces a 0 dBFS tone by %.1f dB", red);
+  CHECK(c.gr_db() > 8, "gain reduction meter %.1f", c.gr_db());
+
+  Limiter l;
+  l.set(-6.0);
+  float peak = 0;
+  for (size_t i = 0; i + kFrameSize <= loud.size(); i += kFrameSize) {
+    l.process(&loud[i], &y[i], kFrameSize);
+    for (int k = 0; k < kFrameSize; ++k) peak = std::max(peak, std::fabs(y[i + k]));
+  }
+  CHECK(peak <= std::pow(10.0, -6.0 / 20.0) + 1e-6, "limiter ceiling holds: peak %.4f", peak);
+  auto quiet = tone(1000, 0.2, 0.1);
+  Limiter l2;
+  l2.set(-1.0);
+  std::vector<float> q(quiet.size());
+  for (size_t i = 0; i + kFrameSize <= quiet.size(); i += kFrameSize) l2.process(&quiet[i], &q[i], kFrameSize);
+  CHECK(std::memcmp(q.data(), quiet.data(), q.size() * sizeof(float)) == 0, "limiter leaves quiet audio alone");
+}
+
 static void test_realtime_cost() {
-  Pipeline p;
+  Config all;
+  all.comp_enabled = true;
+  Pipeline p(all);
   auto x = noise(0.01, 0.05, 3);
   std::vector<float> y(kFrameSize);
   for (int i = 0; i < 100; ++i) p.process(x.data(), y.data());
@@ -261,6 +294,7 @@ int main() {
   test_capi_capture();
   test_eq_responses();
   test_capi_eq();
+  test_compressor_and_limiter();
   test_realtime_cost();
   if (g_fail) {
     std::printf("%d check(s) failed\n", g_fail);
