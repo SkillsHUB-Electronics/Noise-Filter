@@ -184,5 +184,14 @@
   "eq.axis_gain": "Gain (dB)",
   "eq.axis_freq": "Frequency (Hz)",
   "eq.all_tip": "Click to turn all bands on or off.",
-  "eq.band_on_tip": "Turn this band on or off."
+  "eq.band_on_tip": "Turn this band on or off.",
+  "about.title": "About",
+  "about.body": "Realtime microphone noise filter for Windows. AI model: {model}. {copyright}. Source code under the MIT License; the AI model is for non-commercial use.",
+  "about.website": "Website (GitHub)",
+  "about.issues": "Report a problem",
+  "about.privacy": "Privacy policy",
+  "about.license": "License",
+  "about.notices": "Third-party notices",
+  "about.close": "Close",
+  "contrib.privacy_link": "What is sent and how to delete it: <a href=\"#privacy\">privacy policy</a>"
 }

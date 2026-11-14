@@ -11,6 +11,8 @@ a = Analysis(
     binaries=[(str(f), "noise_filter/_native") for f in native.glob("*.dll")],   # nf_core.dll + onnxruntime.dll
     datas=[(str(root / "noise_filter" / "i18n" / "*.json"), "noise_filter/i18n"),
            (str(root / "noise_filter" / "assets" / "*.png"), "noise_filter/assets"),
+           (str(root / "noise_filter" / "legal" / "*.md"), "noise_filter/legal"),
+           (str(root / "noise_filter" / "legal" / "*.txt"), "noise_filter/legal"),
            *[(str(f), "noise_filter/models") for f in (root / "noise_filter" / "models").glob("*.*")],
            (str(native / "nf-cli.exe"), "noise_filter/_native")],
     hiddenimports=["noise_filter.ui.app", "noise_filter.audio.engine", "noise_filter.audio.devices",

@@ -26,6 +26,7 @@ UninstallDisplayIcon={app}\NoiseFilter.exe
 CloseApplications=force
 ChangesEnvironment=yes
 SetupIconFile={#Root}\noise_filter\assets\icon.ico
+LicenseFile={#Root}\LICENSE
 InfoBeforeFile={#Root}\packaging\windows\VB-CABLE-NOTICE.txt
 
 [Languages]
@@ -45,6 +46,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#Root}\dist\NoiseFilter\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#Root}\packaging\windows\VB-CABLE-NOTICE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "{#Root}\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\build\vbcable\*"; DestDir: "{tmp}\vbcable"; Flags: ignoreversion recursesubdirs deleteafterinstall; Tasks: vbcable
 
 [Icons]
