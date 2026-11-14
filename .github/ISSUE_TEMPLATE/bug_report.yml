@@ -1,0 +1,59 @@
+name: Bug report
+description: Something does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check [troubleshooting](https://github.com/SkillsHUB-Electronics/Noise-Filter/blob/HEAD/docs/troubleshooting.md) first.
+        Security problems: please use [a private report](https://github.com/SkillsHUB-Electronics/Noise-Filter/security/advisories/new) instead.
+        English or Bahasa Indonesia are both fine.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Noise Filter
+        2. Choose ... as input
+        3. ...
+  - type: input
+    id: version
+    attributes:
+      label: Noise Filter version
+      description: Settings › About
+      placeholder: "0.9.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 23H2"
+    validations:
+      required: true
+  - type: input
+    id: devices
+    attributes:
+      label: Audio devices and meeting app
+      placeholder: "USB headset -> CABLE Input, Microsoft Teams"
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine (status bar)
+      options: ["C++", "Python", "Not sure"]
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `nfctl status` (optional)
+      render: json
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or anything else

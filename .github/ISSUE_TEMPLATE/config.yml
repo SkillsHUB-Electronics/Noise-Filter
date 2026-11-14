@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/SkillsHUB-Electronics/Noise-Filter/blob/HEAD/docs/troubleshooting.md
+    about: No sound in the meeting app, crackling, VB-CABLE, SmartScreen and more.
+  - name: Report a security vulnerability
+    url: https://github.com/SkillsHUB-Electronics/Noise-Filter/security/advisories/new
+    about: Please report security problems privately.
