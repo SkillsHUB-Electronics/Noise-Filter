@@ -103,6 +103,15 @@ jobs:
           ls dist/NoiseFilter/_internal/noise_filter/_native
           dist/NoiseFilter/NoiseFilter.exe selftest --out selftest.txt; code=$?
           cat selftest.txt; exit $code
+      - name: Smoke test nfctl.exe (command-line / MCP control)
+        shell: bash
+        run: |
+          dist/NoiseFilter/nfctl.exe help > help.txt; grep -q strength help.txt
+          code=0; dist/NoiseFilter/nfctl.exe status || code=$?
+          test $code -eq 3   # app not running -> exit code 3 with a JSON error
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+                         '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | dist/NoiseFilter/nfctl.exe mcp > mcp.txt
+          cat mcp.txt; grep -q '"get_status"' mcp.txt
       - name: Download VB-CABLE driver pack
         shell: pwsh
         run: |

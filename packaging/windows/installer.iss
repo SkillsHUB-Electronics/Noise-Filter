@@ -24,6 +24,7 @@ PrivilegesRequired=admin
 WizardStyle=modern
 UninstallDisplayIcon={app}\NoiseFilter.exe
 CloseApplications=force
+ChangesEnvironment=yes
 SetupIconFile={#Root}\noise_filter\assets\icon.ico
 InfoBeforeFile={#Root}\packaging\windows\VB-CABLE-NOTICE.txt
 
@@ -34,9 +35,11 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 ; Inno Setup has no official Indonesian translation, so key lines are bilingual.
 InstallCable=Install VB-CABLE virtual microphone / Pasang mic virtual VB-CABLE
 CableInstalling=Installing VB-CABLE... / Memasang VB-CABLE...
+AddToPath=Add the nfctl command (control by command line / AI) to PATH / Tambahkan perintah nfctl ke PATH
 
 [Tasks]
 Name: "vbcable"; Description: "{cm:InstallCable}"; Check: not CableInstalled
+Name: "addtopath"; Description: "{cm:AddToPath}"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
@@ -53,6 +56,10 @@ Name: "{autodesktop}\Noise Filter"; Filename: "{app}\NoiseFilter.exe"; Tasks: de
 ; The app writes this value itself ("Start with Windows" setting); remove it on uninstall.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "NoiseFilter"; \
   ValueType: none; Flags: uninsdeletevalue dontcreatekey
+
+; nfctl.exe (command-line / AI control) is reachable from any terminal
+Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueName: "Path"; \
+  ValueType: expandsz; ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Run]
 Filename: "{tmp}\vbcable\VBCABLE_Setup_x64.exe"; Parameters: "-i -h"; StatusMsg: "{cm:CableInstalling}"; \
@@ -76,6 +83,39 @@ begin
     { silent install did not take: show the VB-Audio setup window instead }
     Exec(ExpandConstant('{tmp}\vbcable\VBCABLE_Setup_x64.exe'), '', '', SW_SHOW, ewWaitUntilTerminated, Code);
   CableJustInstalled := CableInstalled;
+end;
+
+const EnvKey = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
+
+function NeedsAddPath(Dir: string): Boolean;
+var Paths: string;
+begin
+  if not RegQueryStringValue(HKLM, EnvKey, 'Path', Paths) then
+  begin
+    Result := True;
+    exit;
+  end;
+  Result := Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Paths) + ';') = 0;
+end;
+
+procedure RemovePath(Dir: string);
+var Paths: string; P: Integer;
+begin
+  if not RegQueryStringValue(HKLM, EnvKey, 'Path', Paths) then exit;
+  P := Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Paths) + ';');
+  if P = 0 then exit;
+  { P is the position of the separator in front of Dir in ';' + Paths + ';' }
+  if P = 1 then
+    Delete(Paths, 1, Length(Dir) + 1)
+  else
+    Delete(Paths, P - 1, Length(Dir) + 1);
+  RegWriteExpandStringValue(HKLM, EnvKey, 'Path', Paths);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RemovePath(ExpandConstant('{app}'));
 end;
 
 function NeedRestart: Boolean;
