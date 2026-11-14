@@ -10,9 +10,11 @@ from PySide6 import QtCore, QtGui, QtWidgets as W
 
 from ..core import eq
 from ..i18n import tr
+from . import theme
 from .spectrum_plot import FreqAxis
+from .widgets import BandCheck, Card, IconButton, InfoBanner, ToggleSwitch
 
-COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#42d4f4", "#f032e6", "#9a6324"]
+COLORS = ["#e5484d", "#30a46c", "#2f80ed", "#f2994a", "#8e4ec6", "#12a5c4", "#d6409f", "#a07040"]
 Y_MIN, Y_MAX = -24.0, 24.0
 CURVE_F = np.logspace(np.log10(20), np.log10(20000), 400)
 
@@ -36,21 +38,35 @@ class EqPlot(pg.PlotWidget):
 
     def __init__(self, freqs: np.ndarray):
         super().__init__(axisItems={"bottom": FreqAxis("bottom")})
-        self.setBackground(None)
         self.setXRange(np.log10(20), np.log10(20000), padding=0)
-        self.setYRange(Y_MIN, Y_MAX, padding=0)
+        self.setYRange(Y_MIN - 2, Y_MAX + 2, padding=0)
+        self.getAxis("left").setTicks([[(v, f"{v:+d}" if v else "0") for v in range(-24, 25, 12)],
+                                       [(v, "") for v in range(-18, 19, 12)]])
         self.setMouseEnabled(False, False)
         self.hideButtons()
         self.setMenuEnabled(False)
-        self.showGrid(x=True, y=True, alpha=0.25)
-        self.setLabel("left", "dB")
-        self.setLabel("bottom", "Hz")
+        self.labels = ("Gain (dB)", "Frequency (Hz)")
         self.sx = np.log10(np.maximum(freqs, 1.0))
-        self.spec = self.plot(self.sx, np.full_like(self.sx, Y_MIN), pen=pg.mkPen("#30b07060", width=1),
-                              fillLevel=Y_MIN, brush=pg.mkBrush("#30b07025"))
-        self.addItem(pg.InfiniteLine(0, angle=0, pen=pg.mkPen("#88888880", width=1)))
+        self.spec = self.plot(self.sx, np.full_like(self.sx, Y_MIN), fillLevel=Y_MIN)
+        self.zero = pg.InfiniteLine(0, angle=0)
+        self.addItem(self.zero)
         self.band_curves: list[pg.PlotDataItem] = []
-        self.curve = self.plot(np.log10(CURVE_F), np.zeros_like(CURVE_F), pen=pg.mkPen("#f0b030", width=3))
+        self.curve = self.plot(np.log10(CURVE_F), np.zeros_like(CURVE_F))
+        self.active = True
+        theme.notifier.changed.connect(self.apply_theme)
+        self.apply_theme()
+
+    def set_labels(self, left: str, bottom: str):
+        self.labels = (left, bottom)
+        self.apply_theme()
+
+    def apply_theme(self):
+        t = theme.tok()
+        theme.style_plot(self, *self.labels)
+        self.spec.setPen(pg.mkPen(t["accent"] + "55", width=1))
+        self.spec.setBrush(pg.mkBrush(t["accent"] + "1c"))
+        self.zero.setPen(pg.mkPen(t["axis"], width=1))
+        self.curve.setPen(pg.mkPen(t["accent"] if self.active else t["disabled"], width=3))
 
     def mouseDoubleClickEvent(self, ev):
         p = self.plotItem.vb.mapSceneToView(self.mapToScene(ev.position().toPoint()))
@@ -90,10 +106,11 @@ class EqPanel(W.QWidget):
         lay = W.QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         top = W.QHBoxLayout()
-        self.enable_cb = W.QCheckBox(); self.enable_cb.setChecked(enabled)
+        top.setContentsMargins(0, 10, 0, 6)
+        self.enable_cb = ToggleSwitch(); self.enable_cb.setChecked(enabled)
         self.preset_lbl = W.QLabel()
         # several presets can be ticked; they are merged into one curve (core.eq.combine)
-        self.preset_btn = W.QToolButton()
+        self.preset_btn = W.QToolButton(); self.preset_btn.setObjectName("comboLike")
         self.preset_btn.setPopupMode(W.QToolButton.InstantPopup)
         self.preset_btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
         self.preset_btn.setSizePolicy(W.QSizePolicy.Expanding, W.QSizePolicy.Fixed)
@@ -104,18 +121,27 @@ class EqPanel(W.QWidget):
         self.save_btn, self.del_btn, self.add_btn = W.QPushButton(), W.QPushButton(), W.QPushButton()
         # lock: bands become read-only (table, graph points, presets) until unlocked
         self.lock_btn = W.QPushButton(); self.lock_btn.setCheckable(True); self.lock_btn.setChecked(self.locked)
-        top.addWidget(self.enable_cb); top.addSpacing(12)
+        self.lock_btn.setObjectName("lockBtn")
+        IconButton.set(self.save_btn, "save"); IconButton.set(self.del_btn, "trash")
+        IconButton.set(self.add_btn, "plus")
+        self.preset_lbl.setObjectName("strong")
+        top.addWidget(self.enable_cb); top.addSpacing(18)
         top.addWidget(self.preset_lbl); top.addWidget(self.preset_btn, 1)
+        top.addSpacing(10)
         top.addWidget(self.save_btn); top.addWidget(self.del_btn)
-        top.addStretch(0); top.addWidget(self.add_btn); top.addWidget(self.lock_btn)
+        top.addWidget(self.add_btn); top.addWidget(self.lock_btn)
         lay.addLayout(top)
 
+        self.card = Card()
+        self.card.header.hide()
+        body = self.card.setBodyLayout(W.QVBoxLayout(), margins=(6, 8, 6, 6))
+        body.setSpacing(6)
+        lay.addWidget(self.card, 1)
         self.plot = EqPlot(freqs)
-        lay.addWidget(self.plot, 3)
-        self.plot.setMinimumHeight(120)
-        self.hint = W.QLabel(); self.hint.setWordWrap(True)
-        self.hint.setStyleSheet("color: palette(placeholder-text);")
-        lay.addWidget(self.hint)
+        body.addWidget(self.plot, 3)
+        self.plot.setMinimumHeight(130)
+        self.hint = InfoBanner()
+        body.addWidget(self.hint)
 
         self.table = W.QTableWidget(0, 8)
         self.table.verticalHeader().setVisible(False)
@@ -129,15 +155,20 @@ class EqPanel(W.QWidget):
         room = fm.horizontalAdvance("00") + 12
         probe = lambda w: w.sizeHint().width() + room
         slope_probe = W.QComboBox(); slope_probe.addItems([f"{s} dB/oct" for s in eq.SLOPES])
-        widths = {0: fm.horizontalAdvance("Aktif") + 40, 2: probe(self._freq_box()), 3: probe(self._gain_box()),
-                  4: probe(self._q_box()), 5: slope_probe.sizeHint().width() + 8, 6: 34, 7: 34}
+        widths = {0: 64, 2: probe(self._freq_box()), 3: probe(self._gain_box()),
+                  4: probe(self._q_box()), 5: slope_probe.sizeHint().width() + 8, 6: 38, 7: 38}
         for col in range(8):
             h.setSectionResizeMode(col, W.QHeaderView.Stretch if col == 1 else W.QHeaderView.Fixed)
             if col in widths:
                 h.resizeSection(col, widths[col])
-        self.table.verticalHeader().setDefaultSectionSize(fm.height() + 14)
-        self.table.setMinimumHeight(fm.height() * 2 + 3 * (fm.height() + 14) // 2)
-        lay.addWidget(self.table, 2)
+        self.table.verticalHeader().setDefaultSectionSize(fm.height() + 18)
+        self.table.setMinimumHeight(fm.height() * 2 + 3 * (fm.height() + 18) // 2)
+        self.table.setShowGrid(False)
+        self.table.setFocusPolicy(QtCore.Qt.NoFocus)
+        h.setSectionsClickable(True)
+        h.sectionClicked.connect(lambda col: self._toggle_all() if col == 0 else None)
+        body.addWidget(self.table, 2)
+        theme.notifier.changed.connect(self._restyle_table)
 
         self.enable_cb.toggled.connect(lambda _: self._emit())
         self.add_btn.clicked.connect(lambda: self.add_band())
@@ -161,6 +192,9 @@ class EqPanel(W.QWidget):
         self._update_lock_button()
         self.hint.setText(t("eq.locked_hint") if self.locked else t("eq.hint"))
         self.table.setHorizontalHeaderLabels([t(f"eq.col.{c}") for c in ("on", "type", "freq", "gain", "q", "slope", "lock", "x")])
+        self.table.horizontalHeaderItem(0).setToolTip(t("eq.all_tip"))
+        self._restyle_table()
+        self.plot.set_labels(t("eq.axis_gain"), t("eq.axis_freq"))
         self._fill_presets()
         if self.table.rowCount():
             self._rebuild()
@@ -209,7 +243,7 @@ class EqPanel(W.QWidget):
         text = " + ".join(self._preset_name(k) for k in self.selection) or tr("eq.preset_none", self.lang)
         self.preset_btn.setToolTip(text)
         w = max(80, self.preset_btn.width() - 28)
-        self.preset_btn.setText(self.preset_btn.fontMetrics().elidedText(text, QtCore.Qt.ElideRight, w) + "  ▾")
+        self.preset_btn.setText(self.preset_btn.fontMetrics().elidedText(text, QtCore.Qt.ElideRight, w - 14))
         self.del_btn.setEnabled(not self.locked and any(k.startswith("user:") for k in self.selection))
         self.preset_btn.setEnabled(not self.locked)
 
@@ -221,6 +255,7 @@ class EqPanel(W.QWidget):
     # ---------- lock ----------
     def _update_lock_button(self):
         self.lock_btn.setText(tr("eq.unlock" if self.locked else "eq.lock", self.lang))
+        IconButton.set(self.lock_btn, "lock" if self.locked else "unlock", "warn" if self.locked else "muted")
         self.lock_btn.setToolTip(tr("eq.lock_tip", self.lang))
 
     def set_locked(self, locked: bool):
@@ -300,17 +335,21 @@ class EqPanel(W.QWidget):
         self.table.setRowCount(len(self.bands))
         for i, b in enumerate(self.bands):
             color = COLORS[i % len(COLORS)]
-            hdl = BandHandle(pos=(0, 0), size=13, symbol="o", movable=not self._row_locked(i),
+            hdl = BandHandle(pos=(0, 0), size=20, symbol="o", movable=not self._row_locked(i),
                              pen=pg.mkPen("white", width=1.5), brush=pg.mkBrush(color),
                              hoverBrush=pg.mkBrush(color), label=str(i + 1),
-                             labelOpts={"color": color, "offset": (8, -14)})
+                             labelOpts={"color": "white", "offset": (0, 0), "anchor": (0.5, 0.5)})
+            lbl = getattr(hdl, "_label", None)
+            if lbl is not None:
+                f = QtGui.QFont(); f.setBold(True); f.setPointSizeF(8); lbl.setFont(f)
             hdl.setZValue(10)
             hdl.sigPositionChanged.connect(lambda h, i=i: self._dragged(i, h))
             hdl.sigPositionChangeFinished.connect(lambda h, i=i: self._select(i))
             hdl.wheeled.connect(lambda h, d, i=i: self._edit(i, q=self.bands[i]["q"] * (1.15 if d > 0 else 1 / 1.15)))
             self.plot.addItem(hdl)
             self.handles.append(hdl)
-            c = self.plot.plot([], [], pen=pg.mkPen(color + "90", width=1, style=QtCore.Qt.DashLine))
+            c = self.plot.plot([], [], pen=pg.mkPen(color + "b0", width=1.2, style=QtCore.Qt.DashLine),
+                               fillLevel=0, brush=pg.mkBrush(color + "14"))
             self.plot.band_curves.append(c)
             self._fill_row(i)
             self._place_handle(i)
@@ -320,9 +359,8 @@ class EqPanel(W.QWidget):
     def _fill_row(self, i: int):
         b = self.bands[i]
         t = lambda k: tr(k, self.lang)
-        on = W.QCheckBox(); on.setChecked(b["on"])
-        on.setStyleSheet(f"QCheckBox {{ color: {COLORS[i % len(COLORS)]}; font-weight: bold; padding-left: 4px; }}")
-        on.setText(str(i + 1))
+        on = BandCheck(i + 1, COLORS[i % len(COLORS)]); on.setChecked(b["on"])
+        on.setToolTip(t("eq.band_on_tip"))
         on.toggled.connect(lambda v, i=i: self._edit(i, on=v))
         typ = W.QComboBox()
         for k in eq.TYPES:
@@ -337,9 +375,10 @@ class EqPanel(W.QWidget):
         for s in eq.SLOPES:
             slope.addItem(f"{s} dB/oct", s)
         slope.currentIndexChanged.connect(lambda _, i=i, w=slope: self._edit(i, slope=w.currentData()))
-        lk = W.QToolButton(); lk.setCheckable(True); lk.setToolTip(t("eq.band_lock_tip"))
+        lk = W.QToolButton(); lk.setCheckable(True); lk.setToolTip(t("eq.band_lock_tip")); lk.setObjectName("cellBtn")
         lk.toggled.connect(lambda v, i=i: self._edit(i, locked=v))
-        rm = W.QToolButton(); rm.setText("✕"); rm.setToolTip(t("eq.remove"))
+        rm = W.QToolButton(); rm.setToolTip(t("eq.remove")); rm.setObjectName("cellBtn")
+        IconButton.set(rm, "trash", "muted", size=18)
         # deferred: the button is deleted when the table is rebuilt
         rm.clicked.connect(lambda _=False, i=i: QtCore.QTimer.singleShot(0, lambda: self.remove_band(i)))
         for col, w in enumerate((on, typ, freq, gain, q, slope, lk, rm)):
@@ -384,14 +423,37 @@ class EqPanel(W.QWidget):
         # locked: values stay readable (not greyed) but cannot be typed, stepped or scrolled
         for box in (freq, gain, q):
             box.setReadOnly(locked)
-            box.setButtonSymbols(W.QAbstractSpinBox.NoButtons if locked else W.QAbstractSpinBox.UpDownArrows)
+            # arrows hidden by the style sheet (NoButtons breaks the field width under a style sheet)
+            if bool(box.property("locked")) != locked:
+                box.setProperty("locked", locked)
+                box.style().unpolish(box); box.style().polish(box)
         for w in (on, typ, rm):
             w.setEnabled(not locked)
         lk.setChecked(bool(b.get("locked")))
-        lk.setText("🔒" if b.get("locked") else "🔓")
+        # locked: orange closed padlock; unlocked: grey open padlock
+        IconButton.set(lk, "lock" if b.get("locked") else "unlock", "warn" if b.get("locked") else "muted", size=18)
         lk.setEnabled(not self.locked)
         for w in ws:
             w.blockSignals(False)
+
+    def _toggle_all(self):
+        """Header tick: all bands on, or all off when they already are."""
+        editable = [i for i in range(len(self.bands)) if not self._row_locked(i)]
+        if not editable:
+            return
+        on = not all(self.bands[i]["on"] for i in editable)
+        for i in editable:
+            self.bands[i] = eq.normalize({**self.bands[i], "on": on})
+            self._sync_row(i); self._place_handle(i)
+        self._emit()
+
+    def _restyle_table(self):
+        item = self.table.horizontalHeaderItem(6)
+        if item is not None:
+            from . import icons
+            t = theme.tok()
+            item.setIcon(icons.icon("lock", t["muted"], size=14))
+            self.table.horizontalHeaderItem(7).setIcon(icons.icon("trash", t["muted"], size=14))
 
     # ---------- plot ----------
     def _place_handle(self, i: int):
@@ -416,11 +478,12 @@ class EqPanel(W.QWidget):
         active = self.enable_cb.isChecked()
         x = np.log10(CURVE_F)
         for b, c in zip(self.bands, self.plot.band_curves):
-            c.setData(x, eq.response_db([b], CURVE_F) if b["on"] else np.zeros_like(CURVE_F))
+            c.setData(x, np.clip(eq.response_db([b], CURVE_F), Y_MIN - 30, Y_MAX + 30) if b["on"] else np.zeros_like(CURVE_F))
             c.setVisible(active and b["on"])
         total = eq.response_db(self.bands, CURVE_F) if active else np.zeros_like(CURVE_F)
         self.plot.curve.setData(x, np.clip(total, Y_MIN - 30, Y_MAX + 30))
-        self.plot.curve.setPen(pg.mkPen("#f0b030" if active else "#888888", width=3))
+        self.plot.active = active
+        self.plot.apply_theme()
 
     def set_spectrum(self, db: np.ndarray):
         self.plot.spec.setData(self.plot.sx, _spec_to_eq_y(db))
