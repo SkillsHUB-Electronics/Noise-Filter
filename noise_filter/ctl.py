@@ -15,6 +15,7 @@ EXAMPLES = """examples:
   nfctl status
   nfctl start                      (opens the app in the tray first if needed)
   nfctl set strength=1.3 highpass_hz=100 denoise=ai
+  nfctl set vocal_mode=on mix=0.8        (singing: keep harmonics, blend in 20 % original)
   nfctl devices
   nfctl device --input "USB" --output "CABLE Input"
   nfctl preset voice_clarity hum_50

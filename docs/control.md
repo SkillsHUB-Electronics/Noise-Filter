@@ -13,6 +13,7 @@ nfctl status                                   # on/off, devices, every setting,
 nfctl start                                    # opens the app in the tray first if needed
 nfctl stop
 nfctl set strength=1.3 highpass_hz=100 denoise=ai gate_enabled=off
+nfctl set vocal_mode=on mix=0.8                # singing: keep harmonics, blend in 20 % original
 nfctl devices
 nfctl device --input "USB" --output "CABLE Input" [--exclusive | --shared]
 nfctl presets                                  # list EQ presets

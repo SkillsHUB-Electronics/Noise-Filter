@@ -32,6 +32,8 @@ Config to_cpp(const nf_config& c) {
   o.comp_makeup_db = c.comp_makeup_db;
   o.limiter_enabled = c.limiter_enabled != 0;
   o.limiter_ceiling_db = c.limiter_ceiling_db;
+  o.vocal_mode = c.vocal_mode != 0;
+  o.mix = c.mix;
   return o;
 }
 
@@ -52,6 +54,8 @@ nf_config to_c(const Config& c) {
   o.comp_makeup_db = c.comp_makeup_db;
   o.limiter_enabled = c.limiter_enabled;
   o.limiter_ceiling_db = c.limiter_ceiling_db;
+  o.vocal_mode = c.vocal_mode;
+  o.mix = c.mix;
   return o;
 }
 

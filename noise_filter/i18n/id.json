@@ -17,6 +17,7 @@
   "controls.title": "Filter",
   "label.mode": "Peredam noise",
   "label.strength": "Kekuatan",
+  "label.mix": "Campuran",
   "label.hp": "High-pass",
   "label.gate": "Ambang gate",
   "label.gain": "Gain output",
@@ -193,5 +194,9 @@
   "about.license": "Lisensi",
   "about.notices": "Pemberitahuan pihak ketiga",
   "about.close": "Tutup",
-  "contrib.privacy_link": "Apa yang dikirim dan cara menghapusnya: <a href=\"#privacy\">kebijakan privasi</a>"
+  "contrib.privacy_link": "Apa yang dikirim dan cara menghapusnya: <a href=\"#privacy\">kebijakan privasi</a>",
+  "vocal.mode": "Mode vokal / nyanyi",
+  "vocal.tip": "Menjaga harmonik, napas, dan gema alami suara bicara maupun nyanyian supaya suara tidak terdengar garing. Noise yang dihapus sedikit lebih sedikit. Dengan model AI, selalu menyisakan 10 % suara asli.",
+  "mix.tip": "Campuran suara yang difilter dan suara asli. 100 % = hanya hasil filter. Sekitar 70–85 % mengembalikan kehangatan dan harmonik sambil tetap meredam sebagian besar noise.",
+  "strength.tip": "Seberapa banyak noise yang dihapus. 1.00 = normal. Kalau suara terdengar garing atau tipis, coba 0.6–0.8."
 }

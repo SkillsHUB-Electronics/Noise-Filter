@@ -16,6 +16,7 @@ if something here matters to you.
 | PC app | Tray, start with Windows, parametric EQ, compressor and limiter | 0.5.x |
 | PC app | `nfctl` command line and MCP server | 0.7.0 |
 | PC app | New design with light/dark themes, About, privacy policy, MIT license | 0.8.0 – 0.9.0 |
+| PC app | Vocal/singing mode that keeps harmonics, dry/wet Mix | 0.10.0 |
 
 ## Being considered
 

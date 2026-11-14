@@ -219,12 +219,14 @@ class MainWindow(W.QMainWindow):
         self.mode_cb.setSizeAdjustPolicy(W.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.mode_cb.setMinimumContentsLength(16)
         self.strength = self._slider(0, 200, int(cfg.strength * 100))
+        self.vocal_cb = W.QCheckBox(); self.vocal_cb.setChecked(bool(cfg.vocal_mode))
+        self.mix = self._slider(0, 100, int(round(cfg.mix * 100)))
         self.hp = self._slider(0, 300, int(cfg.highpass_hz))
         self.gate_on = W.QCheckBox(); self.gate_on.setChecked(cfg.gate_enabled)   # doubles as the row label
         self.gate_th = self._slider(-90, -20, int(cfg.gate_threshold_db))
         self.gain = self._slider(-20, 20, int(cfg.output_gain_db))
-        self.lbls = {k: W.QLabel() for k in ("mode", "strength", "hp", "gain")}
-        self.vals = {k: W.QLabel() for k in ("strength", "hp", "gate", "gain")}
+        self.lbls = {k: W.QLabel() for k in ("mode", "strength", "mix", "hp", "gain")}
+        self.vals = {k: W.QLabel() for k in ("strength", "mix", "hp", "gate", "gain")}
         val_w = self.fontMetrics().horizontalAdvance("-100 dB") + 12
         for v in self.vals.values():
             v.setObjectName("value")
@@ -235,11 +237,13 @@ class MainWindow(W.QMainWindow):
         IconButton.set(self.contrib_rec, "record", "red")
         self.train_btn.clicked.connect(lambda: self._check_model_update(manual=True))
         # one column: label | control | value, every slider the same width, in signal-chain order
-        top = W.QHBoxLayout(); top.addWidget(self.bypass); top.addStretch(1)
+        top = W.QHBoxLayout(); top.addWidget(self.bypass); top.addSpacing(18); top.addWidget(self.vocal_cb)
+        top.addStretch(1)
         top.addWidget(self.contrib_rec); top.addWidget(self.learn_btn)
         g.addLayout(top, 0, 0, 1, 3)
         g.addWidget(self.lbls["mode"], 1, 0); g.addWidget(self.mode_cb, 1, 1, 1, 2)
         for r, (lbl, sl_, k) in enumerate(((self.lbls["strength"], self.strength, "strength"),
+                                           (self.lbls["mix"], self.mix, "mix"),
                                            (self.lbls["hp"], self.hp, "hp"),
                                            (self.gate_on, self.gate_th, "gate"),
                                            (self.lbls["gain"], self.gain, "gain")), start=2):
@@ -374,6 +378,8 @@ class MainWindow(W.QMainWindow):
         self.bypass.toggled.connect(lambda v: self._set(bypass=v))
         self.mode_cb.currentIndexChanged.connect(lambda _: self._mode_changed(self.mode_cb.currentData()))
         self.strength.valueChanged.connect(lambda v: self._set(strength=v / 100))
+        self.vocal_cb.toggled.connect(lambda v: self._set(vocal_mode=v))
+        self.mix.valueChanged.connect(lambda v: self._set(mix=v / 100))
         self.hp.valueChanged.connect(lambda v: self._set(highpass_hz=float(v)))
         self.gate_on.toggled.connect(lambda v: self._set(gate_enabled=v))
         self.gate_th.valueChanged.connect(lambda v: self._set(gate_threshold_db=float(v)))
@@ -513,6 +519,9 @@ class MainWindow(W.QMainWindow):
         self.mode_cb.blockSignals(False)
         for k in self.lbls: self.lbls[k].setText(t(f"label.{k}"))
         self.gate_on.setText(t("label.gate"))
+        self.vocal_cb.setText(t("vocal.mode")); self.vocal_cb.setToolTip(t("vocal.tip"))
+        for w in (self.lbls["mix"], self.mix): w.setToolTip(t("mix.tip"))
+        for w in (self.lbls["strength"], self.strength): w.setToolTip(t("strength.tip"))
         self.learn_btn.setText(t("noise.learn")); self.train_btn.setText(t("model.check"))
         self.contrib_cb.setText(t("contrib.offer")); self.contrib_del.setText(t("contrib.delete"))
         self.contrib_file.setText(t("contrib.file"))
@@ -582,6 +591,7 @@ class MainWindow(W.QMainWindow):
     def _update_value_labels(self):
         c = self.pipe.cfg
         self.vals["strength"].setText(f"{c.strength:.2f}")
+        self.vals["mix"].setText(f"{c.mix * 100:.0f} %")
         self.vals["hp"].setText("off" if c.highpass_hz <= 0 else f"{c.highpass_hz:.0f} Hz")
         self.vals["gate"].setText(f"{c.gate_threshold_db:.0f} dB")
         self.vals["gain"].setText(f"{c.output_gain_db:+.0f} dB")

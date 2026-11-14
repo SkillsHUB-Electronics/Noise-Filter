@@ -17,6 +17,7 @@
   "controls.title": "Filter",
   "label.mode": "Denoise",
   "label.strength": "Strength",
+  "label.mix": "Mix",
   "label.hp": "High-pass",
   "label.gate": "Gate threshold",
   "label.gain": "Output gain",
@@ -193,5 +194,9 @@
   "about.license": "License",
   "about.notices": "Third-party notices",
   "about.close": "Close",
-  "contrib.privacy_link": "What is sent and how to delete it: <a href=\"#privacy\">privacy policy</a>"
+  "contrib.privacy_link": "What is sent and how to delete it: <a href=\"#privacy\">privacy policy</a>",
+  "vocal.mode": "Vocal / singing mode",
+  "vocal.tip": "Keeps the harmonics, breath and natural decay of speech and singing so the voice does not sound dry. Removes a little less noise. With the AI model it always keeps 10 % of the original sound.",
+  "mix.tip": "Blend of filtered and original sound. 100 % = filtered only. Around 70–85 % brings back warmth and harmonics while keeping most of the noise reduction.",
+  "strength.tip": "How much noise is removed. 1.00 = normal. If your voice sounds dry or thin, try 0.6–0.8."
 }

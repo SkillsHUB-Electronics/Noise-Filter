@@ -10,7 +10,7 @@ and are checked against each other sample by sample.
 Microphone
    │  WASAPI capture (shared or exclusive), 48 kHz mono float
    ▼
-high-pass ─▶ denoise ─▶ EQ ─▶ gate ─▶ compressor ─▶ output gain ─▶ limiter
+high-pass ─▶ denoise + mix ─▶ EQ ─▶ gate ─▶ compressor ─▶ output gain ─▶ limiter
    │            │                                                     │
    │            └ spectral (adaptive or learned profile) or NFNet ONNX │
    ▼                                                                  ▼
@@ -22,6 +22,11 @@ input analyzer                                               output analyzer
 
 - **Frame size:** 480 samples (10 ms at 48 kHz). The spectral and AI denoisers add one frame of
   algorithmic delay; the EQ, gate, compressor and limiter add none.
+- **Mix (dry/wet)** blends the denoiser output with the high-passed input delayed by the same one
+  frame, so both line up sample for sample and the blend adds no comb filtering.
+- **Vocal mode** changes the spectral denoiser (harmonic peaks protected, noise estimate frozen on
+  them, higher floor, gentler above 3 kHz, slower release) and the gate (slower release, -25 dB
+  floor). With the AI model it caps the wet share at 90 %.
 - **Cost per frame:** about 0.45 ms in Python and about 0.02 ms in C++; NFNet adds about 0.4 ms in C++.
 - **Inference is CPU-only.** A GPU is only useful for training.
 

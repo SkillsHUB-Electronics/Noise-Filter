@@ -12,16 +12,24 @@ Pipeline::Pipeline(const Config& cfg)
       gate_(cfg.gate_threshold_db),
       spectral_(cfg.strength),
       a_(kFrameSize),
-      b_(kFrameSize) {
+      b_(kFrameSize),
+      dry_(kFrameSize, 0.0f) {
+  set_vocal(cfg.vocal_mode);
   comp_.set(cfg.comp_threshold_db, cfg.comp_ratio, cfg.comp_attack_ms, cfg.comp_release_ms, cfg.comp_makeup_db);
   limiter_.set(cfg.limiter_ceiling_db);
 }
 
 Pipeline::~Pipeline() = default;
 
+void Pipeline::set_vocal(bool v) {
+  spectral_.vocal = v;
+  gate_.set_shape(v ? kGateVocalRelease : 0.05, v ? kGateVocalFloorDb : -40.0);
+}
+
 void Pipeline::update(const Config& c) {
   if (c.highpass_hz != cfg_.highpass_hz && c.highpass_hz > 0) hp_ = HighPass(c.highpass_hz);
   if (c.strength != cfg_.strength) spectral_.strength = c.strength;
+  if (c.vocal_mode != cfg_.vocal_mode) set_vocal(c.vocal_mode);
   if (c.gate_threshold_db != cfg_.gate_threshold_db) gate_.set_threshold_db(c.gate_threshold_db);
   if (c.comp_threshold_db != cfg_.comp_threshold_db || c.comp_ratio != cfg_.comp_ratio ||
       c.comp_attack_ms != cfg_.comp_attack_ms || c.comp_release_ms != cfg_.comp_release_ms ||
@@ -54,12 +62,24 @@ void Pipeline::process(const float* in, float* out) {
       hp_.process(a, b, kFrameSize);
       std::swap(a, b);
     }
+    bool denoised = true;
     if (cfg_.denoise == DenoiseMode::Spectral) {
       spectral_.process(a, b);
-      std::swap(a, b);
     } else if (cfg_.denoise == DenoiseMode::Onnx && onnx_) {
       onnx_->process(a, b);
+    } else {
+      denoised = false;
+    }
+    if (denoised) {
+      // a = high-passed input, b = denoised (one frame late): mix with last frame's input
+      float w = std::min(1.0f, std::max(0.0f, cfg_.mix));
+      if (cfg_.vocal_mode && cfg_.denoise == DenoiseMode::Onnx) w = std::min(w, kAiVocalMaxWet);
+      if (w < 1.0f)
+        for (int i = 0; i < kFrameSize; ++i) b[i] = w * b[i] + (1.0f - w) * dry_[i];
+      std::copy(a, a + kFrameSize, dry_.begin());
       std::swap(a, b);
+    } else {
+      std::copy(a, a + kFrameSize, dry_.begin());
     }
     if (eq_.active()) {  // after denoising, so boosted bands do not lift the noise first
       eq_.process(a, b, kFrameSize);

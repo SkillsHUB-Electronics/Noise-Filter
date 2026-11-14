@@ -39,7 +39,12 @@ def compare(py, nat, x, hook=None):
     PipelineConfig(bypass=True),
     PipelineConfig(strength=1.7, gate_threshold_db=-40.0, output_gain_db=6.0),
     PipelineConfig(highpass_hz=0.0, gate_enabled=False),
-], ids=["default", "nogate", "hp-only", "bypass", "strong", "spectral-only"])
+    PipelineConfig(vocal_mode=True),
+    PipelineConfig(vocal_mode=True, strength=1.6, gate_threshold_db=-35.0),
+    PipelineConfig(mix=0.6),
+    PipelineConfig(vocal_mode=True, mix=0.8, denoise="off"),
+], ids=["default", "nogate", "hp-only", "bypass", "strong", "spectral-only", "vocal", "vocal-strong-gate",
+        "mix60", "vocal-mix-off"])
 def test_parity(cfg):
     x = signal()
     assert compare(Pipeline(PipelineConfig(**cfg.to_dict())), native.NativePipeline(PipelineConfig(**cfg.to_dict())), x) < TOL
@@ -106,6 +111,26 @@ def test_parity_with_learned_profile_and_live_updates():
     assert np.allclose(py.spectral.profile, nat.spectral.profile, rtol=1e-4, atol=1e-9)
 
 
+def test_parity_vocal_mode_live_toggle_and_profile():
+    x = signal(4.0, seed=4)
+
+    def hook(i, py, nat):
+        if i == 30:
+            for p in (py, nat): p.update(vocal_mode=True)
+        if i == 90:
+            for p in (py, nat): p.update(mix=0.7)
+        if i == 120:
+            for p in (py, nat): p.spectral.start_learning()
+        if i == 170:
+            for p in (py, nat): p.spectral.finish_learning()
+        if i == 250:
+            for p in (py, nat): p.update(vocal_mode=False, mix=1.0)
+        if i == 320:
+            for p in (py, nat): p.update(vocal_mode=True)
+
+    assert compare(Pipeline(), native.NativePipeline(), x, hook) < TOL
+
+
 def test_native_analyzer_matches_python():
     x = signal(0.5)
     py, nat = Pipeline(PipelineConfig(bypass=True)), native.NativePipeline(PipelineConfig(bypass=True))
@@ -168,6 +193,9 @@ def test_onnx_parity(tmp_path):
     py, nat = Pipeline(PipelineConfig(**cfg)), native.NativePipeline(PipelineConfig(**cfg))
     x = signal(0.5)
     assert compare(py, nat, x) < 1e-6
+    for extra in (dict(mix=0.5), dict(vocal_mode=True)):     # AI + vocal: mix capped at 0.9
+        c2 = dict(cfg, **extra)
+        assert compare(Pipeline(PipelineConfig(**c2)), native.NativePipeline(PipelineConfig(**c2)), x) < 1e-6
     # and the model really ran: output = average of this and the previous frame
     f0, f1 = list(frames(x))[:2]
     p = native.NativePipeline(PipelineConfig(**cfg))

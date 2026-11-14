@@ -24,9 +24,12 @@ missing) and restart Windows if the installer asks. When running from source, in
 - Use the **C++ engine** (the status bar says *Engine: C++*). The installer always includes it.
 - The AI denoiser costs more CPU than the spectral one; switch to *Spectral* on a slow PC.
 
-## My voice sounds thin, robotic or cut off
+## My voice sounds thin, robotic, dry or cut off
 
-- Lower **Strength** (1.0 is the default).
+- Turn on **Vocal / singing mode**. It keeps the harmonics and natural decay of the voice,
+  especially on long sung notes. [How it compares](images/vocal-compare.png).
+- Lower **Mix** to 70-85 % to blend some of the original sound back in.
+- Lower **Strength** (1.0 is the default; 0.6-0.8 keeps more of the voice).
 - Lower the **Gate threshold** or turn the gate off; a high gate cuts quiet syllables.
 - Click **Learn my room noise** while you stay quiet, so the spectral denoiser knows the real noise.
 - Check the **Equalizer**: a strong high-pass or several stacked presets can remove too much.

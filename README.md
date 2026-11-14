@@ -91,7 +91,7 @@ from a synthetic voice-plus-noise signal, so anyone can regenerate them after a 
 
 | Area | Highlights |
 |---|---|
-| **Denoise** | Spectral denoiser (adaptive, or a learned room-noise profile), NFNet ONNX AI denoiser, strength control, bypass |
+| **Denoise** | Spectral denoiser (adaptive, or a learned room-noise profile), NFNet ONNX AI denoiser, strength control, vocal/singing mode that keeps harmonics, dry/wet mix, bypass |
 | **Clean-up** | High-pass filter, noise gate, output gain |
 | **Equalizer** | 8 parametric bands: peak, low/high shelf, Butterworth low/high-pass 12 to 48 dB/oct, band-pass, notch; 20 stackable presets; user presets; per-band and preset locks |
 | **Dynamics** | Soft-knee compressor with makeup gain, zero-latency peak limiter (on by default at -1 dBFS), transfer curve, gain-reduction meters |
