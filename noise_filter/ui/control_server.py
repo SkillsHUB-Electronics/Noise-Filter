@@ -140,6 +140,7 @@ class Controller:
             "settings": self._settings(),
             "eq_presets": [k["name"] for k in self._preset_list() if k["selected"]],
             "eq_band_count": len(p.cfg.eq_bands),
+            "eq_locked": w.eq_panel.locked,
             "levels_db": {"input": round(float(p.in_analyzer.level_db()), 1),
                           "output": round(float(p.out_analyzer.level_db()), 1)},
         }
@@ -233,10 +234,13 @@ class Controller:
         return self.cmd_devices()
 
     def cmd_eq_presets(self):
-        return {"presets": self._preset_list(), "enabled": self.w.pipe.cfg.eq_enabled, "max_bands": eq.MAX_BANDS}
+        return {"presets": self._preset_list(), "enabled": self.w.pipe.cfg.eq_enabled, "max_bands": eq.MAX_BANDS,
+                "locked": self.w.eq_panel.locked}
 
     def cmd_set_eq_presets(self, presets=None):
         """Tick exactly these presets (keys, ids like 'podcast', or display names); [] clears them."""
+        if self.w.eq_panel.locked:
+            raise ControlError("the EQ is locked in the app; unlock it there first")
         presets = presets or []
         if isinstance(presets, str):
             presets = [presets]
