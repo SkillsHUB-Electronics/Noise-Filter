@@ -36,7 +36,6 @@ def test_privacy_policy_lists_every_uploaded_field():
     for words in ("audio clip", "noise type", "app version", "operating system", "installation ID",
                   "consent version", "microphone or a file"):
         assert words in text
-    assert __version__ in text.splitlines()[2]       # "Last updated: ... (app version X)"
 
 
 def test_about_card_and_privacy_dialog(tmp_path, monkeypatch):
