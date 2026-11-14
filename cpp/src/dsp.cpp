@@ -79,6 +79,11 @@ NoiseGate::NoiseGate(double threshold_db, double attack, double release, double 
 
 void NoiseGate::set_threshold_db(double db) { threshold_ = std::pow(10.0, db / 20.0); }
 
+void NoiseGate::set_shape(double release, double floor_db) {
+  release_ = release;
+  floor_ = std::pow(10.0, floor_db / 20.0);
+}
+
 void NoiseGate::process(const float* x, float* y, int n) {
   double acc = 0.0;
   for (int i = 0; i < n; ++i) acc += static_cast<double>(x[i]) * x[i];
@@ -110,6 +115,13 @@ SpectralDenoiser::SpectralDenoiser(float strength_, float floor_, float smoothin
   gain_prev_.assign(kSpectralBins, 1.0f);
   profile_.assign(kSpectralBins, 0.0f);
   learn_sum_.assign(kSpectralBins, 0.0);
+  pv_.assign(kSpectralBins, 0.0f);
+  hfloor_.assign(kSpectralBins, 0.0f);
+  hfw_.resize(kSpectralBins);
+  for (int k = 0; k < kSpectralBins; ++k) {
+    const float f = static_cast<float>(k) * kSampleRate / n2;
+    hfw_[k] = 1.0f - kVocalHfEase * std::min(1.0f, std::max(0.0f, (f - kVocalHfStart) / kVocalHfSpan));
+  }
 }
 
 void SpectralDenoiser::start_learning() {
@@ -147,32 +159,74 @@ void SpectralDenoiser::process(const float* x, float* y) {
     ++learn_count_;
   }
 
+  if (vocal) {
+    if (!pv_init_) {
+      pv_ = p_;
+      pv_init_ = true;
+    } else {
+      for (int k = 0; k < kSpectralBins; ++k) pv_[k] = 0.5f * pv_[k] + 0.5f * p_[k];
+    }
+  }
+  // Vocal mode: gain floor on spectral peaks well above the noise (harmonics) and their neighbours.
+  auto harmonic_floor = [&](const float* nz, float b) {
+    std::fill(hfloor_.begin(), hfloor_.end(), 0.0f);
+    for (int k = 1; k < kSpectralBins - 1; ++k) {
+      if (pv_[k] > pv_[k - 1] && pv_[k] >= pv_[k + 1] && pv_[k] > kVocalPeakSnr * (nz[k] * b)) {
+        hfloor_[k - 1] = std::max(hfloor_[k - 1], kVocalSideGain);
+        hfloor_[k + 1] = std::max(hfloor_[k + 1], kVocalSideGain);
+      }
+    }
+    for (int k = 1; k < kSpectralBins - 1; ++k)
+      if (pv_[k] > pv_[k - 1] && pv_[k] >= pv_[k + 1] && pv_[k] > kVocalPeakSnr * (nz[k] * b))
+        hfloor_[k] = kVocalPeakGain;
+  };
+
   const float* noise;
   float bias;
   if (has_profile_) {
     noise = profile_.data();
     bias = 1.0f;
+    if (vocal) harmonic_floor(noise, 1.0f);
   } else {
     if (!adaptive_init_) {
       ps_ = p_;
       noise_ = p_;
       adaptive_init_ = true;
     }
-    const float up = 1.0f + rise;
-    for (int k = 0; k < kSpectralBins; ++k) {
+    for (int k = 0; k < kSpectralBins; ++k)
       ps_[k] = 0.9f * ps_[k] + 0.1f * p_[k];  // smooth first: raw bin power is very noisy
-      noise_[k] = std::min(ps_[k], noise_[k] * up);
+    if (vocal) {
+      harmonic_floor(noise_.data(), 2.0f);
+      const float up = 1.0f + std::min(rise, kVocalRise);
+      for (int k = 0; k < kSpectralBins; ++k)  // never climbs into a harmonic
+        noise_[k] = std::min(ps_[k], noise_[k] * (hfloor_[k] > 0.0f ? 1.0f : up));
+    } else {
+      const float up = 1.0f + rise;
+      for (int k = 0; k < kSpectralBins; ++k) noise_[k] = std::min(ps_[k], noise_[k] * up);
     }
     noise = noise_.data();
     bias = 2.0f;  // min-tracker underestimates the mean
   }
 
-  for (int k = 0; k < kSpectralBins; ++k) {
-    float g = std::max(1.0f - strength * (noise[k] * bias) / (p_[k] + 1e-12f), floor);
-    g = smoothing * gain_prev_[k] + (1.0f - smoothing) * g;
-    gain_prev_[k] = g;
-    re_[k] *= g;
-    im_[k] *= g;
+  if (vocal) {
+    const float fl = std::max(floor, kVocalFloor);
+    for (int k = 0; k < kSpectralBins; ++k) {
+      float g = 1.0f - strength * hfw_[k] * (noise[k] * bias) / (p_[k] + 1e-12f);
+      g = std::max(std::max(g, fl), hfloor_[k]);
+      const float a = g > gain_prev_[k] ? kVocalAttack : kVocalRelease;
+      g = a * gain_prev_[k] + (1.0f - a) * g;
+      gain_prev_[k] = g;
+      re_[k] *= g;
+      im_[k] *= g;
+    }
+  } else {
+    for (int k = 0; k < kSpectralBins; ++k) {
+      float g = std::max(1.0f - strength * (noise[k] * bias) / (p_[k] + 1e-12f), floor);
+      g = smoothing * gain_prev_[k] + (1.0f - smoothing) * g;
+      gain_prev_[k] = g;
+      re_[k] *= g;
+      im_[k] *= g;
+    }
   }
   fft_.inverse(re_.data(), im_.data(), out_.data());
   for (int i = 0; i < n; ++i) {

@@ -103,12 +103,20 @@ class NoiseGate {
   explicit NoiseGate(double threshold_db = -55.0, double attack = 0.5,
                      double release = 0.05, double floor_db = -40.0);
   void set_threshold_db(double db);
+  void set_shape(double release, double floor_db);  // vocal mode: slower release, shallower floor
   void process(const float* x, float* y, int n);
   double gain() const { return gain_; }
 
  private:
   double threshold_, floor_, attack_, release_, gain_ = 1.0;
 };
+
+// Vocal / singing mode constants (see noise_filter/core/spectral.py and gate.py).
+constexpr float kVocalFloor = 0.12f, kVocalRise = 0.002f, kVocalAttack = 0.6f, kVocalRelease = 0.75f;
+constexpr float kVocalPeakSnr = 3.0f, kVocalPeakGain = 1.0f, kVocalSideGain = 0.6f;
+constexpr float kVocalHfStart = 3000.0f, kVocalHfSpan = 6000.0f, kVocalHfEase = 0.15f;
+constexpr double kGateVocalRelease = 0.02, kGateVocalFloorDb = -25.0;
+constexpr float kAiVocalMaxWet = 0.9f;
 
 class SpectralDenoiser {
  public:
@@ -125,11 +133,13 @@ class SpectralDenoiser {
   void set_profile(const float* p);  // kSpectralBins values
 
   float strength, floor, smoothing, rise;
+  bool vocal = false;  // keep harmonics (speech / singing)
 
  private:
   RealFft fft_;
   std::vector<float> win_, prev_, tail_, buf_, re_, im_, p_, ps_, noise_,
-      gain_prev_, out_, profile_;
+      gain_prev_, out_, profile_, pv_, hfw_, hfloor_;
+  bool pv_init_ = false;
   std::vector<double> learn_sum_;
   int learn_count_ = 0;
   bool learning_ = false, has_profile_ = false, adaptive_init_ = false;
@@ -171,6 +181,8 @@ struct Config {
   float highpass_hz = 80.0f;
   DenoiseMode denoise = DenoiseMode::Spectral;
   float strength = 1.0f;
+  bool vocal_mode = false;
+  float mix = 1.0f;  // dry/wet after the denoiser
   bool gate_enabled = true;
   float gate_threshold_db = -55.0f;
   float output_gain_db = 0.0f;
@@ -220,7 +232,8 @@ class Pipeline {
   Limiter limiter_;
   SpectralDenoiser spectral_;
   std::unique_ptr<OnnxDenoiser> onnx_;
-  std::vector<float> a_, b_;
+  std::vector<float> a_, b_, dry_;  // dry_: high-passed input of the previous frame (denoiser latency)
+  void set_vocal(bool v);
 };
 
 }  // namespace nf

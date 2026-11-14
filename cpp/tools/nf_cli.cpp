@@ -2,6 +2,7 @@
 //   nf-cli devices
 //   nf-cli run --in <index|name part> --out <index|name part> [--exclusive] [--bypass]
 //              [--mode off|spectral|onnx] [--onnx model.onnx] [--strength 1.0] [--no-gate]
+//              [--vocal] [--mix 1.0]
 //   nf-cli process in.wav out.wav [--learn-seconds 2] [same filter options]
 //   nf-cli bench
 #include <algorithm>
@@ -33,8 +34,8 @@ void on_signal(int) { g_stop = true; }
 struct Args {
   std::vector<std::string> pos;
   std::string in, out, mode = "spectral", onnx;
-  bool exclusive = false, bypass = false, no_gate = false;
-  float strength = 1.0f, hp = 80.0f, learn_seconds = 0.0f, gain_db = 0.0f;
+  bool exclusive = false, bypass = false, no_gate = false, vocal = false;
+  float strength = 1.0f, mix = 1.0f, hp = 80.0f, learn_seconds = 0.0f, gain_db = 0.0f;
 };
 
 Args parse(int argc, char** argv) {
@@ -53,6 +54,8 @@ Args parse(int argc, char** argv) {
     else if (s == "--exclusive") a.exclusive = true;
     else if (s == "--bypass") a.bypass = true;
     else if (s == "--no-gate") a.no_gate = true;
+    else if (s == "--vocal") a.vocal = true;
+    else if (s == "--mix") a.mix = std::stof(next());
     else a.pos.push_back(s);
   }
   return a;
@@ -66,6 +69,8 @@ nf_pipeline* make_pipeline(const Args& a) {
   c.denoise = a.mode == "off" ? NF_DENOISE_OFF : a.mode == "onnx" ? NF_DENOISE_ONNX : NF_DENOISE_SPECTRAL;
   c.strength = a.strength;
   c.gate_enabled = !a.no_gate;
+  c.vocal_mode = a.vocal;
+  c.mix = a.mix;
   c.output_gain_db = a.gain_db;
   nf_pipeline* p = nf_pipeline_create(&c);
   if (!a.onnx.empty()) {
@@ -265,7 +270,7 @@ int main(int argc, char** argv) {
     std::printf("nf-cli (nf-core API %d, ONNX %s)\n"
                 "  devices\n"
                 "  run --in <index|name> --out <index|name> [--exclusive] [--mode off|spectral|onnx] [--onnx m.onnx]\n"
-                "      [--strength 1.0] [--highpass 80] [--gain 0] [--no-gate] [--bypass]\n"
+                "      [--strength 1.0] [--highpass 80] [--gain 0] [--no-gate] [--bypass] [--vocal] [--mix 1.0]\n"
                 "  process in.wav out.wav [--learn-seconds 2] [filter options]\n"
                 "  bench [filter options]\n",
                 nf_api_version(), nf_has_onnx() ? "yes" : "no");

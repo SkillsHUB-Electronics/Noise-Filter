@@ -283,6 +283,25 @@ static void test_realtime_cost() {
   CHECK(us < 2000, "too slow: %.1f us", us);
 }
 
+static void test_capi_mix_and_vocal() {
+  // mix = 0: the output is the input, delayed by exactly the denoiser's one frame
+  nf_config c;
+  nf_default_config(&c);
+  CHECK(c.mix == 1.0f && c.vocal_mode == 0, "v3 defaults: mix 1, vocal off");
+  c.highpass_hz = 0; c.gate_enabled = 0; c.limiter_enabled = 0; c.mix = 0.0f; c.vocal_mode = 1;
+  nf_pipeline* p = nf_pipeline_create(&c);
+  auto x = tone(440, 0.1);
+  std::vector<float> y(x.size());
+  for (size_t i = 0; i + kFrameSize <= x.size(); i += kFrameSize) nf_pipeline_process(p, &x[i], &y[i]);
+  float worst = 0.0f;
+  for (size_t i = kFrameSize; i < x.size(); ++i) worst = std::max(worst, std::fabs(y[i] - x[i - kFrameSize]));
+  CHECK(worst < 1e-6f, "mix 0 = input one frame late (err %g)", worst);
+  nf_config back;
+  nf_pipeline_get_config(p, &back);
+  CHECK(back.vocal_mode == 1 && back.mix == 0.0f, "config round trip keeps vocal_mode and mix");
+  nf_pipeline_destroy(p);
+}
+
 int main() {
   test_fft_roundtrip();
   test_bypass_is_identity();
@@ -295,6 +314,7 @@ int main() {
   test_eq_responses();
   test_capi_eq();
   test_compressor_and_limiter();
+  test_capi_mix_and_vocal();
   test_realtime_cost();
   if (g_fail) {
     std::printf("%d check(s) failed\n", g_fail);

@@ -26,7 +26,7 @@ extern "C" {
 #define NF_API __attribute__((visibility("default")))
 #endif
 
-#define NF_API_VERSION 2 /* 2: parametric EQ, compressor, limiter */
+#define NF_API_VERSION 3 /* 2: parametric EQ, compressor, limiter; 3: vocal mode, dry/wet mix */
 
 enum { NF_DENOISE_OFF = 0, NF_DENOISE_SPECTRAL = 1, NF_DENOISE_ONNX = 2 };
 enum { NF_INPUT = 0, NF_OUTPUT = 1 };
@@ -48,6 +48,9 @@ typedef struct nf_config {
   float comp_makeup_db;
   int limiter_enabled;
   float limiter_ceiling_db; /* e.g. -1: output never exceeds it, no look-ahead delay */
+  /* v3 */
+  int vocal_mode; /* keep harmonics of speech/singing: gentler spectral denoiser and gate */
+  float mix;      /* 0..1 dry/wet after the denoiser (1 = filtered only); capped at 0.9 with AI + vocal mode */
 } nf_config;
 
 /* Parametric EQ band (applied after the denoiser). */

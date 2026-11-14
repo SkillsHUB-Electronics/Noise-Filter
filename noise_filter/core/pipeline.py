@@ -4,9 +4,11 @@ from .constants import FRAME_SIZE
 from .biquad import HighPass
 from .eq import Equalizer
 from .dynamics import Compressor, Limiter
-from .gate import NoiseGate
+from .gate import NoiseGate, VOCAL_RELEASE as GATE_VOCAL_RELEASE, VOCAL_FLOOR_DB as GATE_VOCAL_FLOOR_DB
 from .spectral import SpectralDenoiser
 from .analyzer import SpectrumAnalyzer
+
+AI_VOCAL_MAX_WET = 0.9   # vocal mode + AI model: keep at least 10 % of the original (-20 dB) for natural harmonics
 
 
 @dataclass
@@ -16,6 +18,8 @@ class PipelineConfig:
     denoise: str = "spectral"      # "off" | "spectral" | "onnx"
     onnx_model: str = ""
     strength: float = 1.0
+    vocal_mode: bool = False       # keep harmonics of speech/singing (gentler spectral denoiser + gate)
+    mix: float = 1.0               # dry/wet: 1 = only the filtered signal, 0 = only the original
     gate_enabled: bool = True
     gate_threshold_db: float = -55.0
     output_gain_db: float = 0.0
@@ -34,7 +38,8 @@ class PipelineConfig:
 
 
 class Pipeline:
-    """mic frame -> highpass -> denoise -> EQ -> gate -> compressor -> gain -> limiter, with in/out analyzers."""
+    """mic frame -> highpass -> denoise (+ dry/wet mix) -> EQ -> gate -> compressor -> gain -> limiter,
+    with in/out analyzers. The dry signal for the mix is delayed by one frame, the latency of the denoisers."""
 
     def __init__(self, cfg: PipelineConfig | None = None):
         self.cfg = cfg or PipelineConfig()
@@ -59,6 +64,8 @@ class Pipeline:
         self.hp = HighPass(cfg.highpass_hz)
         self.gate = NoiseGate(cfg.gate_threshold_db)
         self.spectral = SpectralDenoiser(strength=cfg.strength)
+        self.dry = np.zeros(FRAME_SIZE, np.float32)
+        self._set_vocal()
         self.eq = Equalizer(cfg.eq_enabled, cfg.eq_bands)
         self.comp = Compressor(cfg.comp_threshold_db, cfg.comp_ratio, cfg.comp_attack_ms,
                                cfg.comp_release_ms, cfg.comp_makeup_db)
@@ -77,6 +84,8 @@ class Pipeline:
             self.hp = HighPass(self.cfg.highpass_hz)
         if "strength" in changes:
             self.spectral.strength = self.cfg.strength
+        if "vocal_mode" in changes:
+            self._set_vocal()
         if "eq_enabled" in changes or "eq_bands" in changes:
             self.eq.set(self.cfg.eq_enabled, self.cfg.eq_bands)
         if any(k.startswith("comp_") and k != "comp_enabled" for k in changes):
@@ -89,6 +98,18 @@ class Pipeline:
         if "onnx_model" in changes and self.cfg.onnx_model:
             from .denoiser_onnx import OnnxDenoiser
             self.onnx = OnnxDenoiser(self.cfg.onnx_model)
+
+    def _set_vocal(self) -> None:
+        v = bool(self.cfg.vocal_mode)
+        self.spectral.vocal = v
+        self.gate.set_shape(GATE_VOCAL_RELEASE if v else 0.05, GATE_VOCAL_FLOOR_DB if v else -40.0)
+
+    def wet_amount(self) -> float:
+        """Share of the denoised signal in the output (the Mix control, capped in vocal mode with AI)."""
+        m = min(max(float(self.cfg.mix), 0.0), 1.0)
+        if self.cfg.vocal_mode and self.cfg.denoise == "onnx":
+            m = min(m, AI_VOCAL_MAX_WET)
+        return m
 
     def dynamics_gr_db(self) -> tuple[float, float]:
         """(compressor, limiter) gain reduction in dB, for the meters."""
@@ -107,10 +128,17 @@ class Pipeline:
             out = frame
         else:
             x = self.hp.process(frame) if self.cfg.highpass_hz > 0 else frame
+            dry, self.dry = self.dry, np.array(x, np.float32)   # x one frame ago, aligned with the denoiser output
+            denoised = True
             if self.cfg.denoise == "spectral":
                 x = self.spectral.process(x)
             elif self.cfg.denoise == "onnx" and self.onnx:
                 x = self.onnx.process(x)
+            else:
+                denoised = False
+            w = self.wet_amount()
+            if denoised and w < 1.0:
+                x = (np.float32(w) * x + np.float32(1.0 - w) * dry).astype(np.float32)
             x = self.eq.process(x)   # after denoising, so boosted bands do not lift the noise first
             if self.cfg.gate_enabled:
                 x = self.gate.process(x)

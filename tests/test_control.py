@@ -92,6 +92,11 @@ def test_control_running_window(tmp_path, monkeypatch):
         c = w.pipe.cfg
         assert (c.strength, c.highpass_hz, c.gate_enabled, c.comp_ratio, c.limiter_ceiling_db) == (1.3, 0, False, 4.5, -2.5)
         assert w.strength.value() == 130 and not w.gate_on.isChecked()        # the window shows the same
+        s = call("set", vocal_mode="on", mix=0.8)
+        assert s["vocal_mode"] is True and s["mix"] == 0.8 and w.vocal_cb.isChecked() and w.mix.value() == 80
+        assert w.pipe.cfg.vocal_mode is True and w.pipe.cfg.mix == 0.8
+        with pytest.raises(remote.ControlError, match="between"):
+            call("set", mix=1.5)
         with pytest.raises(remote.ControlError, match="between"):
             call("set", strength=5, highpass_hz=10)
         assert w.pipe.cfg.highpass_hz == 0                                    # nothing applied on error
@@ -114,6 +119,7 @@ def test_control_running_window(tmp_path, monkeypatch):
             call("format_disk")
         from noise_filter.ui import settings
         assert settings.load()["pipeline"]["strength"] == 1.3                 # remembered like a UI change
+        assert settings.load()["pipeline"]["vocal_mode"] is True
     finally:
         server.close()
         w._quitting = True

@@ -7,7 +7,20 @@ All notable changes to Noise Filter are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-14
+
 ### Added
+- **Vocal / singing mode** (Filter tab): keeps the harmonics, breath and natural decay of speech
+  and singing so the voice no longer sounds dry. Spectral peaks that stand out from the noise keep
+  their full level, the adaptive noise estimate never climbs into them (long sung notes are no
+  longer learned as noise), high frequencies are cut more gently, gains close more slowly and the
+  gate is softer. With the AI model it keeps 10 % of the original sound.
+- **Mix** slider (dry/wet, 0-100 %): blends the filtered sound with the time-aligned original.
+  70-85 % brings back warmth while keeping most of the noise reduction.
+- `nfctl set vocal_mode=on mix=0.8` and the same settings through the MCP server.
+- `nf-cli --vocal --mix 0.8`; C API v3 (`nf_config.vocal_mode`, `nf_config.mix`).
+- `tools/vocal_compare.py`: before/after audio and spectrum comparison.
+- Tooltips on Strength, Mix and Vocal mode explaining what to change when the voice sounds dry.
 - Professional repository page: new README with screenshots, `docs/` guides, changelog, roadmap,
   contributing guide, security policy, code of conduct, and issue and pull request templates.
 - `tools/readme_screenshots.py` renders the README screenshots from the real app.
@@ -94,7 +107,8 @@ All notable changes to Noise Filter are listed here. The format follows
 - Offline Windows installer with VB-CABLE bundled.
 - App icon.
 
-[Unreleased]: https://github.com/SkillsHUB-Electronics/Noise-Filter/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/SkillsHUB-Electronics/Noise-Filter/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/SkillsHUB-Electronics/Noise-Filter/releases/tag/v0.10.0
 [0.9.0]: https://github.com/SkillsHUB-Electronics/Noise-Filter/releases/tag/v0.9.0
 [0.8.0]: https://github.com/SkillsHUB-Electronics/Noise-Filter/releases/tag/v0.8.0
 [0.7.1]: https://github.com/SkillsHUB-Electronics/Noise-Filter/releases/tag/v0.7.1

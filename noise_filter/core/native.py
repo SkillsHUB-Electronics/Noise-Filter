@@ -23,7 +23,7 @@ from .constants import FRAME_SIZE, SAMPLE_RATE
 from .pipeline import PipelineConfig
 
 _MODES = {"off": 0, "spectral": 1, "onnx": 2}
-API_VERSION = 2
+API_VERSION = 3
 
 
 class _Config(C.Structure):
@@ -31,7 +31,8 @@ class _Config(C.Structure):
                 ("strength", C.c_float), ("gate_enabled", C.c_int), ("gate_threshold_db", C.c_float),
                 ("output_gain_db", C.c_float), ("comp_enabled", C.c_int), ("comp_threshold_db", C.c_float),
                 ("comp_ratio", C.c_float), ("comp_attack_ms", C.c_float), ("comp_release_ms", C.c_float),
-                ("comp_makeup_db", C.c_float), ("limiter_enabled", C.c_int), ("limiter_ceiling_db", C.c_float)]
+                ("comp_makeup_db", C.c_float), ("limiter_enabled", C.c_int), ("limiter_ceiling_db", C.c_float),
+                ("vocal_mode", C.c_int), ("mix", C.c_float)]
 
 
 class _EqBand(C.Structure):
@@ -144,7 +145,8 @@ def _to_c(cfg: PipelineConfig) -> _Config:
                    int(cfg.gate_enabled), float(cfg.gate_threshold_db), float(cfg.output_gain_db),
                    int(cfg.comp_enabled), float(cfg.comp_threshold_db), float(cfg.comp_ratio),
                    float(cfg.comp_attack_ms), float(cfg.comp_release_ms), float(cfg.comp_makeup_db),
-                   int(cfg.limiter_enabled), float(cfg.limiter_ceiling_db))
+                   int(cfg.limiter_enabled), float(cfg.limiter_ceiling_db),
+                   int(cfg.vocal_mode), float(cfg.mix))
 
 
 class NativeAnalyzer:

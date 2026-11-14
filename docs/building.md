@@ -47,7 +47,7 @@ request ([ci.yml](../.github/workflows/ci.yml)), and the Worker tests when `clou
 ```powershell
 pyinstaller packaging/windows/noise_filter.spec
 # extract the VB-CABLE driver pack to build/vbcable/
-iscc /DAppVersion=0.9.0 packaging/windows/installer.iss
+iscc /DAppVersion=0.10.0 packaging/windows/installer.iss
 ```
 
 The result is `dist/NoiseFilter-Setup-<version>.exe`. CI builds the same file on every push and

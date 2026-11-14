@@ -78,7 +78,7 @@ class Controller:
     # ---------- helpers ----------
     def _sliders(self) -> dict:
         w = self.w
-        out = {"strength": (w.strength, 100), "highpass_hz": (w.hp, 1),
+        out = {"strength": (w.strength, 100), "mix": (w.mix, 100), "highpass_hz": (w.hp, 1),
                "gate_threshold_db": (w.gate_th, 1), "output_gain_db": (w.gain, 1)}
         for key, _lo, _hi, scale, _fmt in COMP_PARAMS + LIM_PARAMS:
             out[key] = (w.dyn_panel.sliders[key], scale)
@@ -86,7 +86,7 @@ class Controller:
 
     def _checks(self) -> dict:
         w = self.w
-        return {"bypass": w.bypass, "gate_enabled": w.gate_on, "eq_enabled": w.eq_panel.enable_cb,
+        return {"bypass": w.bypass, "vocal_mode": w.vocal_cb, "gate_enabled": w.gate_on, "eq_enabled": w.eq_panel.enable_cb,
                 "comp_enabled": w.dyn_panel.comp_on, "limiter_enabled": w.dyn_panel.lim_on,
                 "close_to_tray": w.tray_cb, "start_with_windows": w.autostart_cb, "resume": w.resume_cb}
 

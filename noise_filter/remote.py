@@ -24,7 +24,9 @@ import time
 PARAMS: dict[str, tuple] = {
     "bypass": (bool, None, None, "pass the microphone through unprocessed"),
     "denoise": (str, None, None, "noise reduction mode: off | spectral | ai"),
-    "strength": (float, 0.0, 2.0, "noise reduction strength (1.0 = normal)"),
+    "strength": (float, 0.0, 2.0, "noise reduction strength (1.0 = normal; 0.6-0.8 keeps more voice character)"),
+    "vocal_mode": (bool, None, None, "vocal/singing mode: keep harmonics, breath and note tails (removes a bit less noise)"),
+    "mix": (float, 0.0, 1.0, "dry/wet mix after noise reduction: 1.0 = filtered only, 0.8 = 20 % original"),
     "highpass_hz": (float, 0, 300, "high-pass cutoff in Hz (0 = off)"),
     "gate_enabled": (bool, None, None, "noise gate on/off"),
     "gate_threshold_db": (float, -90, -20, "noise gate threshold in dB"),
