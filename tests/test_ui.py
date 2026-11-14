@@ -432,3 +432,73 @@ def test_eq_combine_presets_in_menu(tmp_path, monkeypatch):
     p.clear_presets()
     assert p.selection == [] and w.pipe.cfg.eq_bands == [] and not w.pipe.cfg.eq_enabled
     w.close()
+
+
+def test_eq_lock_blocks_edits_and_persists(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    monkeypatch.setattr(W.QApplication, "quit", staticmethod(lambda: None))
+    from noise_filter.ui.main_window import MainWindow
+    w = MainWindow(demo=True)
+    p = w.eq_panel
+    p.preset_actions["builtin:hum_50"].trigger()
+    before = [dict(b) for b in w.pipe.cfg.eq_bands]
+    # the spin boxes are wide enough for their widest value
+    for col in (2, 3, 4):
+        box = p.table.cellWidget(0, col)
+        assert p.table.columnWidth(col) >= box.sizeHint().width()
+    p.lock_btn.click()                                     # lock
+    assert p.locked and w.data["eq_locked"]
+    assert p.table.cellWidget(0, 2).isReadOnly() and not p.table.cellWidget(0, 1).isEnabled()
+    assert not p.add_btn.isEnabled() and not p.preset_btn.isEnabled() and not p.handles[0].movable
+    p.table.cellWidget(0, 2).setValue(777)                 # programmatic change is reverted
+    p.handles[0].setPos(np.log10(3000), 5.0)               # so is a drag
+    p.plot.double_clicked.emit(2000.0, 3.0)                # double-click adds nothing
+    assert w.pipe.cfg.eq_bands == before and p.table.cellWidget(0, 2).value() == before[0]["freq"]
+    assert p.enable_cb.isEnabled()                         # EQ on/off still works
+    w.close()
+
+    w2 = MainWindow(demo=True)
+    assert w2.eq_panel.locked and w2.eq_panel.lock_btn.isChecked()
+    w2.eq_panel.lock_btn.click()                           # unlock
+    assert not w2.eq_panel.locked and w2.eq_panel.add_btn.isEnabled()
+    w2.eq_panel.table.cellWidget(0, 2).setValue(55.5)      # decimals are kept
+    assert w2.pipe.cfg.eq_bands[0]["freq"] == 55.5
+    w2.close()
+
+
+def test_eq_band_lock(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from PySide6 import QtWidgets as W
+    app = W.QApplication.instance() or W.QApplication([])
+    monkeypatch.setattr(W.QApplication, "quit", staticmethod(lambda: None))
+    from noise_filter.ui.main_window import MainWindow
+    w = MainWindow(demo=True)
+    p = w.eq_panel
+    p.add_band({"type": "bandpass", "freq": 500, "q": 2})
+    p.add_band({"type": "peak", "freq": 3000, "gain": 3})
+    p.table.cellWidget(0, 6).click()                       # lock band 1 (500 Hz band-pass)
+    assert w.pipe.cfg.eq_bands[0].get("locked") and not w.pipe.cfg.eq_bands[1].get("locked")
+    assert p.table.cellWidget(0, 2).isReadOnly() and not p.table.cellWidget(0, 7).isEnabled()
+    assert not p.handles[0].movable and p.handles[1].movable
+    p.table.cellWidget(0, 2).setValue(800)                 # reverted
+    p.remove_band(0)                                       # refused
+    p.table.cellWidget(1, 2).setValue(2500)                # the other band still edits
+    b = w.pipe.cfg.eq_bands
+    assert len(b) == 2 and b[0]["freq"] == 500 and b[1]["freq"] == 2500
+    p.preset_actions["builtin:hum_50"].trigger()           # preset change keeps the locked band
+    b = w.pipe.cfg.eq_bands
+    assert b[0]["freq"] == 500 and b[0]["locked"] and [x["freq"] for x in b[1:]] == [50, 100, 150]
+    p.lock_btn.click()                                     # lock presets: the band's own lock is frozen too
+    assert not p.table.cellWidget(0, 6).isEnabled() and not p.preset_btn.isEnabled()
+    p.lock_btn.click()
+    w.close()
+
+    w2 = MainWindow(demo=True)                             # band lock is remembered
+    p2 = w2.eq_panel
+    assert p2.bands[0].get("locked") and p2.table.cellWidget(0, 6).isChecked()
+    p2.table.cellWidget(0, 6).click()                      # unlock: editable again
+    p2.table.cellWidget(0, 2).setValue(600)
+    assert w2.pipe.cfg.eq_bands[0]["freq"] == 600 and "locked" not in w2.pipe.cfg.eq_bands[0]
+    w2.close()

@@ -100,6 +100,11 @@ def test_control_running_window(tmp_path, monkeypatch):
         assert call("set_eq_presets", presets=[])["enabled"] is False
         with pytest.raises(remote.ControlError, match="unknown preset"):
             call("set_eq_presets", presets=["nope"])
+        w.eq_panel.set_locked(True)                    # a locked EQ refuses remote changes too
+        assert call("eq_presets")["locked"] is True
+        with pytest.raises(remote.ControlError, match="locked"):
+            call("set_eq_presets", presets=["podcast"])
+        w.eq_panel.set_locked(False)
         assert call("learn_noise")["seconds"] > 0
         assert call("status")["learning_noise"] is True
         with pytest.raises(remote.ControlError, match="demo"):
