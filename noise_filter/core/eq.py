@@ -219,4 +219,23 @@ PRESETS: dict[str, list[dict]] = {
                 band("peak", 4500, 2.5, 1.0), band("highshelf", 10000, 1.5, 0.7)],
     "reduce_boom": [band("highpass", 120, slope=36), band("peak", 200, -4, 1.0)],
     "reduce_hiss": [band("lowpass", 9000, slope=24), band("highshelf", 6000, -4, 0.7)],
+    # voice tone
+    "warm": [band("lowshelf", 180, 2.5, 0.7), band("peak", 3500, -1, 1.0)],
+    "bright": [band("peak", 3000, 1.5, 1.0), band("highshelf", 6000, 3, 0.7)],
+    "presence": [band("peak", 4000, 3, 1.0)],
+    "broadcast": [band("highpass", 70, slope=24), band("lowshelf", 120, 3, 0.7), band("peak", 300, -1.5, 1.0),
+                  band("peak", 3500, 2, 1.0), band("highshelf", 9000, 2, 0.7)],
+    # problem fixes
+    "reduce_mud": [band("peak", 300, -3, 1.2)],
+    "reduce_nasal": [band("peak", 1000, -3, 1.4)],
+    "de_ess": [band("peak", 6500, -4, 2.0)],
+    "reduce_rumble": [band("highpass", 70, slope=48)],
+    "fan_noise": [band("highpass", 150, slope=24), band("lowpass", 10000, slope=24), band("peak", 250, -2, 1.0)],
+    # microphones and rooms
+    "headset": [band("highpass", 100, slope=24), band("peak", 800, -2, 1.0), band("peak", 3000, 3, 1.0),
+                band("lowpass", 12000, slope=12)],
+    "laptop_mic": [band("highpass", 120, slope=24), band("peak", 500, -3, 1.0), band("peak", 3000, 2, 1.0)],
+    "meeting": [band("highpass", 100, slope=24), band("peak", 250, -2, 1.0), band("peak", 2500, 2, 1.0),
+                band("lowpass", 8000, slope=12)],
+    "echo_room": [band("peak", 400, -3, 0.9), band("peak", 2000, 1.5, 1.0), band("highshelf", 8000, -2, 0.7)],
 }

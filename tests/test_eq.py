@@ -93,3 +93,19 @@ def test_combine_presets():
     f = np.array([70.0, 1000.0, 3000.0])
     np.testing.assert_allclose(eq.response_db(a, f),
                                eq.response_db(P["hum_50"], f) + eq.response_db(P["voice_clarity"], f), atol=1e-6)
+
+
+def test_new_presets_stack():
+    P = eq.PRESETS
+    assert len(P) >= 20
+    # tone + fixes + hum can be ticked together (warm's 3.5 kHz dip merges with presence's 4 kHz boost)
+    c = eq.combine([P["warm"], P["presence"], P["de_ess"], P["reduce_mud"], P["hum_50"]])
+    assert c is not None and len(c) == 7
+    # mic presets with fixes: one high-pass/low-pass survives, the strictest
+    m = eq.combine([P["meeting"], P["fan_noise"], P["reduce_rumble"]])
+    hp = [b for b in m if b["type"] == "highpass"]; lp = [b for b in m if b["type"] == "lowpass"]
+    assert len(hp) == 1 and hp[0]["freq"] == 150 and hp[0]["slope"] == 48
+    assert len(lp) == 1 and lp[0]["freq"] == 8000
+    # every preset stacks with a tone preset
+    for k in P:
+        assert eq.combine([P[k], P["presence"]]) is not None, k
