@@ -184,5 +184,14 @@
   "eq.axis_gain": "Gain (dB)",
   "eq.axis_freq": "Frekuensi (Hz)",
   "eq.all_tip": "Klik untuk menyalakan atau mematikan semua band.",
-  "eq.band_on_tip": "Nyalakan atau matikan band ini."
+  "eq.band_on_tip": "Nyalakan atau matikan band ini.",
+  "about.title": "Tentang",
+  "about.body": "Filter noise mikrofon realtime untuk Windows. Model AI: {model}. {copyright}. Kode sumber berlisensi MIT; model AI untuk penggunaan non-komersial.",
+  "about.website": "Situs web (GitHub)",
+  "about.issues": "Laporkan masalah",
+  "about.privacy": "Kebijakan privasi",
+  "about.license": "Lisensi",
+  "about.notices": "Pemberitahuan pihak ketiga",
+  "about.close": "Tutup",
+  "contrib.privacy_link": "Apa yang dikirim dan cara menghapusnya: <a href=\"#privacy\">kebijakan privasi</a>"
 }

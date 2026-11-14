@@ -99,3 +99,13 @@ installer to it automatically. Build locally on Windows: `pyinstaller packaging/
 VB-CABLE is made by VB-Audio (www.vb-cable.com) and is bundled under their distribution terms.
 VB-CABLE is a donationware, all participations are welcome. Deployments in companies, schools or public institutions,
 where end users cannot donate themselves, need VB-CABLE licenses bought by the distributor.
+
+## License and privacy
+Noise Filter's source code is under the [MIT License](LICENSE). The bundled AI model is trained on data with
+non-commercial licenses, so the model files are for non-commercial use only; Qt/PySide6 (LGPL), VB-CABLE and the
+other components keep their own licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The [privacy policy](PRIVACY.md) ([Bahasa Indonesia](noise_filter/legal/PRIVACY.id.md)) explains what leaves the PC:
+only the AI model update check and noise samples the user chooses to send. All three documents ship inside the app
+(Settings > About) from `noise_filter/legal/`; the copies at the repository root must stay identical (checked by
+`tests/test_legal.py`).

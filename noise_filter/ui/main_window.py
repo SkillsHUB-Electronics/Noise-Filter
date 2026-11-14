@@ -12,6 +12,7 @@ from .widgets import Card, ColorDot, IconButton, LevelMeter, StatusDot, scroll_p
 from .eq_panel import EqPanel
 from .dynamics_panel import DynamicsPanel
 from .contribute_dialog import ContributeDialog, UploadWorker
+from .about import AboutCard
 
 LANGS = [("en", "English"), ("id", "Bahasa Indonesia")]
 LEARN_SECONDS = 3
@@ -329,6 +330,8 @@ class MainWindow(W.QMainWindow):
         pair = W.QHBoxLayout(); pair.setSpacing(12)
         pair.addWidget(self.ai_box, 1); pair.addWidget(self.ctl_box, 1)
         pl.addLayout(pair)
+        self.about_box = AboutCard()     # version, copyright, privacy policy, license
+        pl.addWidget(self.about_box)
         pl.addStretch(1)
         self.set_box = scroll_page(page)
         self.tabs.addTab(self.set_box, "")
@@ -481,6 +484,7 @@ class MainWindow(W.QMainWindow):
         self.tabs.setTabText(2, t("tab.dynamics").replace("&", "&&"))   # "&" is not a shortcut
         self.eq_panel.retranslate(self.lang)
         self.dyn_panel.retranslate(self.lang)
+        self.about_box.retranslate(self.lang)
         self.lang_lbl.setText(t("settings.lang"))
         self.tray_cb.setText(t("settings.tray")); self.tray_cb.setToolTip(t("settings.tray_tip"))
         self.autostart_cb.setText(t("settings.autostart"))

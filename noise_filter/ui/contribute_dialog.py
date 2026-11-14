@@ -50,6 +50,10 @@ class ContributeDialog(W.QDialog):
         self.own.setChecked(not file)
         self.own.setVisible(bool(file))
         lay.addWidget(self.own)
+        self.privacy = W.QLabel(t("contrib.privacy_link"))
+        self.privacy.setStyleSheet("QLabel { font-size: 11px; }")
+        self.privacy.linkActivated.connect(self._privacy)
+        lay.addWidget(self.privacy)
 
         btns = W.QHBoxLayout()
         self.send_btn = W.QPushButton(t("contrib.send"))
@@ -65,6 +69,10 @@ class ContributeDialog(W.QDialog):
         for cb in (self.consent, self.own):
             cb.toggled.connect(self._update_send)
         self._update_send()
+
+    def _privacy(self, _link=""):
+        from .about import show_doc
+        self._doc = show_doc("privacy", self.lang, self)
 
     def _update_send(self, *_):
         self.send_btn.setEnabled(self.consent.isChecked() and self.own.isChecked())
