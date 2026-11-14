@@ -48,7 +48,8 @@ def normalize(b: dict) -> dict:
             "gain": float(min(GAIN_MAX, max(GAIN_MIN, float(b.get("gain", 0.0))))),
             "q": float(min(Q_MAX, max(Q_MIN, float(b.get("q", 0.71))))),
             "slope": slope,
-            "on": bool(b.get("on", True))}
+            "on": bool(b.get("on", True)),
+            **({"locked": True} if b.get("locked") else {})}   # UI only: the band cannot be edited
 
 
 def butterworth_qs(order: int) -> list[float]:

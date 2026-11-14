@@ -117,7 +117,7 @@ class EqPanel(W.QWidget):
         self.hint.setStyleSheet("color: palette(placeholder-text);")
         lay.addWidget(self.hint)
 
-        self.table = W.QTableWidget(0, 7)
+        self.table = W.QTableWidget(0, 8)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(W.QAbstractItemView.SelectRows)
         self.table.setSelectionMode(W.QAbstractItemView.SingleSelection)
@@ -130,8 +130,8 @@ class EqPanel(W.QWidget):
         probe = lambda w: w.sizeHint().width() + room
         slope_probe = W.QComboBox(); slope_probe.addItems([f"{s} dB/oct" for s in eq.SLOPES])
         widths = {0: fm.horizontalAdvance("Aktif") + 40, 2: probe(self._freq_box()), 3: probe(self._gain_box()),
-                  4: probe(self._q_box()), 5: slope_probe.sizeHint().width() + 8, 6: 34}
-        for col in range(7):
+                  4: probe(self._q_box()), 5: slope_probe.sizeHint().width() + 8, 6: 34, 7: 34}
+        for col in range(8):
             h.setSectionResizeMode(col, W.QHeaderView.Stretch if col == 1 else W.QHeaderView.Fixed)
             if col in widths:
                 h.resizeSection(col, widths[col])
@@ -160,7 +160,7 @@ class EqPanel(W.QWidget):
         self.add_btn.setText(t("eq.add"))
         self._update_lock_button()
         self.hint.setText(t("eq.locked_hint") if self.locked else t("eq.hint"))
-        self.table.setHorizontalHeaderLabels([t(f"eq.col.{c}") for c in ("on", "type", "freq", "gain", "q", "slope", "x")])
+        self.table.setHorizontalHeaderLabels([t(f"eq.col.{c}") for c in ("on", "type", "freq", "gain", "q", "slope", "lock", "x")])
         self._fill_presets()
         if self.table.rowCount():
             self._rebuild()
@@ -233,7 +233,7 @@ class EqPanel(W.QWidget):
         self._update_lock_button()
         self.hint.setText(tr("eq.locked_hint" if locked else "eq.hint", self.lang))
         for i, h in enumerate(self.handles):
-            h.movable = not locked
+            h.movable = not self._row_locked(i)
             self._sync_row(i)
         self._update_add_button()
         self._update_preset_button()
@@ -265,8 +265,11 @@ class EqPanel(W.QWidget):
         self._select(len(self.bands) - 1)
         self._emit()
 
+    def _row_locked(self, i: int) -> bool:
+        return self.locked or bool(self.bands[i].get("locked"))
+
     def remove_band(self, i: int):
-        if 0 <= i < len(self.bands):
+        if 0 <= i < len(self.bands) and not self._row_locked(i):
             del self.bands[i]
             self._selected = -1
             self._rebuild()
@@ -275,7 +278,9 @@ class EqPanel(W.QWidget):
     def _edit(self, i: int, **kw):
         if not 0 <= i < len(self.bands):
             return
-        if self.locked:                    # undo whatever slipped through (e.g. a drag in progress)
+        # locked (all, or this band): undo whatever slipped through (e.g. a drag in progress).
+        # A band's own lock can still be toggled unless everything is locked.
+        if self.locked or (self.bands[i].get("locked") and set(kw) != {"locked"}):
             self._sync_row(i); self._place_handle(i)
             return
         b = eq.normalize({**self.bands[i], **kw})
@@ -295,7 +300,7 @@ class EqPanel(W.QWidget):
         self.table.setRowCount(len(self.bands))
         for i, b in enumerate(self.bands):
             color = COLORS[i % len(COLORS)]
-            hdl = BandHandle(pos=(0, 0), size=13, symbol="o", movable=not self.locked,
+            hdl = BandHandle(pos=(0, 0), size=13, symbol="o", movable=not self._row_locked(i),
                              pen=pg.mkPen("white", width=1.5), brush=pg.mkBrush(color),
                              hoverBrush=pg.mkBrush(color), label=str(i + 1),
                              labelOpts={"color": color, "offset": (8, -14)})
@@ -332,10 +337,12 @@ class EqPanel(W.QWidget):
         for s in eq.SLOPES:
             slope.addItem(f"{s} dB/oct", s)
         slope.currentIndexChanged.connect(lambda _, i=i, w=slope: self._edit(i, slope=w.currentData()))
+        lk = W.QToolButton(); lk.setCheckable(True); lk.setToolTip(t("eq.band_lock_tip"))
+        lk.toggled.connect(lambda v, i=i: self._edit(i, locked=v))
         rm = W.QToolButton(); rm.setText("✕"); rm.setToolTip(t("eq.remove"))
         # deferred: the button is deleted when the table is rebuilt
         rm.clicked.connect(lambda _=False, i=i: QtCore.QTimer.singleShot(0, lambda: self.remove_band(i)))
-        for col, w in enumerate((on, typ, freq, gain, q, slope, rm)):
+        for col, w in enumerate((on, typ, freq, gain, q, slope, lk, rm)):
             self.table.setCellWidget(i, col, w)
         self._sync_row(i)
 
@@ -360,10 +367,11 @@ class EqPanel(W.QWidget):
 
     def _sync_row(self, i: int):
         b = self.bands[i]
-        ws = [self.table.cellWidget(i, c) for c in range(7)]
+        ws = [self.table.cellWidget(i, c) for c in range(8)]
         if any(w is None for w in ws):
             return
-        on, typ, freq, gain, q, slope, rm = ws
+        on, typ, freq, gain, q, slope, lk, rm = ws
+        locked = self._row_locked(i)
         for w in ws:
             w.blockSignals(True)
         on.setChecked(b["on"])
@@ -371,14 +379,17 @@ class EqPanel(W.QWidget):
         freq.setValue(b["freq"]); gain.setValue(b["gain"]); q.setValue(b["q"])
         slope.setCurrentIndex(eq.SLOPES.index(b["slope"]))
         gain.setEnabled(b["type"] in eq.GAIN_TYPES)
-        slope.setEnabled(not self.locked and b["type"] in eq.SLOPE_TYPES)
+        slope.setEnabled(not locked and b["type"] in eq.SLOPE_TYPES)
         q.setEnabled(not (b["type"] in eq.SLOPE_TYPES and b["slope"] > 12))   # steeper = pure Butterworth
         # locked: values stay readable (not greyed) but cannot be typed, stepped or scrolled
         for box in (freq, gain, q):
-            box.setReadOnly(self.locked)
-            box.setButtonSymbols(W.QAbstractSpinBox.NoButtons if self.locked else W.QAbstractSpinBox.UpDownArrows)
+            box.setReadOnly(locked)
+            box.setButtonSymbols(W.QAbstractSpinBox.NoButtons if locked else W.QAbstractSpinBox.UpDownArrows)
         for w in (on, typ, rm):
-            w.setEnabled(not self.locked)
+            w.setEnabled(not locked)
+        lk.setChecked(bool(b.get("locked")))
+        lk.setText("🔒" if b.get("locked") else "🔓")
+        lk.setEnabled(not self.locked)
         for w in ws:
             w.blockSignals(False)
 
@@ -391,7 +402,7 @@ class EqPanel(W.QWidget):
         hdl.setPos(np.log10(b["freq"]), y)
         hdl.blockSignals(False)
         hdl.setOpacity(1.0 if b["on"] else 0.35)
-        hdl.movable = not self.locked
+        hdl.movable = not self._row_locked(i)
 
     def _dragged(self, i: int, hdl):
         p = hdl.pos()
@@ -436,6 +447,9 @@ class EqPanel(W.QWidget):
         """Tick exactly these presets and load their merged bands. False if they do not fit."""
         keys = [k for k in dict.fromkeys(keys) if self._preset_bands(k) is not None]
         bands = eq.combine([self._preset_bands(k) for k in keys])
+        kept = [b for b in self.bands if b.get("locked")]          # locked bands survive a preset change
+        if bands is not None and kept:
+            bands = kept + bands if len(kept) + len(bands) <= eq.MAX_BANDS else None
         if bands is None:
             self._fill_presets()            # undo the tick in the menu
             return False
